@@ -33,7 +33,7 @@ class CommandMatch:
     args: str
 
 
-def dispatch_command(context: CommandContext) -> str | None:
+def dispatch_command(context: CommandContext):
     match = match_command(context.text, context.scope_type)
     if match is None:
         return None

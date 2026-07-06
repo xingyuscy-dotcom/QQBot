@@ -170,6 +170,22 @@ def health_check(context, args: str) -> str:
     return format_health_report(collect_health())
 
 
+def at_test(context, args: str):
+    if context.scope_type != "group":
+        return "这个命令只能在群聊里使用。"
+
+    parts = args.strip().split(maxsplit=1)
+    if not parts:
+        return "用法：/at QQ号 内容"
+
+    qq = parts[0].strip()
+    text = parts[1].strip() if len(parts) > 1 else "测试一下"
+    if not qq.isdigit():
+        return "QQ号只能是数字。"
+
+    return {"type": "group_at", "qq": qq, "text": text}
+
+
 def conversation_status(context, args: str) -> str:
     config = _get_conversation_config(context)
     if not config:
@@ -465,6 +481,7 @@ HANDLERS: dict[str, Callable] = {
     "backup_create": backup_create,
     "backup_list": backup_list,
     "health_check": health_check,
+    "at_test": at_test,
     "conversation_status": conversation_status,
     "conversation_enable": conversation_enable,
     "conversation_disable": conversation_disable,

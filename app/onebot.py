@@ -98,8 +98,8 @@ async def handle_group_message(websocket: WebSocket, event: dict, bot_qq: str, t
     command_reply = dispatch_command(CommandContext(bot_qq, "group", group_id, user_id, command_text))
     if command_reply is not None:
         if command_reply:
-            await send_group_message(websocket, group_id, command_reply)
-            save_conversation_message(bot_qq, "group", group_id, bot_qq, None, command_reply, is_bot=True)
+            saved_reply = await send_group_command_reply(websocket, group_id, command_reply)
+            save_conversation_message(bot_qq, "group", group_id, bot_qq, None, saved_reply, is_bot=True)
         return
 
     save_conversation_message(bot_qq, "group", group_id, user_id, message_id, text)
@@ -350,6 +350,18 @@ async def send_group_message(websocket: WebSocket, group_id: str, text: str) -> 
             "echo": f"qqbot_v2:{uuid4().hex}",
         }
     )
+
+
+async def send_group_command_reply(websocket: WebSocket, group_id: str, reply) -> str:
+    if isinstance(reply, dict) and reply.get("type") == "group_at":
+        qq = str(reply.get("qq") or "").strip()
+        text = str(reply.get("text") or "").strip()
+        await send_group_at_message(websocket, group_id, qq, text)
+        return f"@{qq} {text}".strip()
+
+    text = str(reply)
+    await send_group_message(websocket, group_id, text)
+    return text
 
 
 async def send_group_at_message(websocket: WebSocket, group_id: str, qq: str, text: str) -> None:

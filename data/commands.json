@@ -192,6 +192,17 @@
     "handler": "health_check"
   },
   {
+    "name": "at_test",
+    "trigger": "/at",
+    "usage": "/at QQ号 内容",
+    "description": "测试机器人在群里真正 @ 指定 QQ",
+    "manager_only": true,
+    "scopes": [
+      "group"
+    ],
+    "handler": "at_test"
+  },
+  {
     "name": "conversation_status",
     "trigger": "/状态",
     "usage": "/状态",
