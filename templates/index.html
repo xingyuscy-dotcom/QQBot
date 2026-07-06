@@ -76,6 +76,46 @@
     </section>
 
     <section class="panel wide-panel">
+      <div class="panel-heading">
+        <h2>命令库</h2>
+        <div class="heading-actions">
+          <button id="saveCommands" type="button">保存命令库</button>
+          <button id="addCommand" class="secondary" type="button">添加新命令</button>
+          <button id="toggleCommandList" class="secondary" type="button">收起命令列表</button>
+          <button id="refreshCommands" class="secondary" type="button">刷新命令库</button>
+        </div>
+      </div>
+      <p class="section-note">
+        <span id="commandPath"></span>
+      </p>
+      <div class="form-actions backup-actions">
+        <span id="commandNotice"></span>
+      </div>
+      <div id="commandTableWrap" class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>触发词</th>
+              <th>用法</th>
+              <th>说明</th>
+              <th>权限</th>
+              <th>范围</th>
+              <th>处理器</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="commandList">
+            <tr><td colspan="7" class="empty">加载中</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <label class="wide-field command-editor-field">
+        <span>命令库 JSON</span>
+        <textarea id="commandEditor" class="code-editor" spellcheck="false"></textarea>
+      </label>
+    </section>
+
+    <section class="panel wide-panel">
       <h2>会话列表</h2>
       <div class="table-wrap">
         <table>
@@ -251,6 +291,6 @@
     </section>
   </div>
 
-  <script src="/static/admin.js?v=learn-1"></script>
+  <script src="/static/admin.js?v=commands-1"></script>
 </body>
 </html>

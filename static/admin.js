@@ -1,4 +1,5 @@
 let activeConversation = null;
+let commandListExpanded = true;
 
 function text(value, fallback = "未获取") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
@@ -72,6 +73,42 @@ function formatLogDetail(detail) {
   } catch {
     return raw;
   }
+}
+
+function commandScopeLabel(scopes) {
+  const labels = {
+    group: "群聊",
+    private: "私聊",
+  };
+  return (scopes || []).map((scope) => labels[scope] || scope).join("、") || "-";
+}
+
+function readCommandEditorItems() {
+  const content = document.querySelector("#commandEditor").value.trim();
+  if (!content) return [];
+  const items = JSON.parse(content);
+  if (!Array.isArray(items)) {
+    throw new Error("命令库必须是 JSON 数组");
+  }
+  return items;
+}
+
+function writeCommandEditorItems(items) {
+  document.querySelector("#commandEditor").value = JSON.stringify(items, null, 2);
+  renderCommandList(items);
+}
+
+function makeCommandTemplate(items) {
+  const index = items.length + 1;
+  return {
+    name: `new_command_${index}`,
+    trigger: `/新命令${index}`,
+    usage: `/新命令${index}`,
+    description: "新命令说明",
+    manager_only: true,
+    scopes: ["group", "private"],
+    handler: "command_help",
+  };
 }
 
 function formatBytes(size) {
@@ -332,6 +369,140 @@ async function refreshLogs() {
       `
     )
     .join("");
+}
+
+async function refreshCommands(clearNotice = false) {
+  const list = document.querySelector("#commandList");
+  const editor = document.querySelector("#commandEditor");
+  const notice = document.querySelector("#commandNotice");
+
+  try {
+    const response = await fetch("/api/commands");
+    if (!response.ok) throw new Error(await readErrorMessage(response, "读取命令库失败"));
+
+    const data = await response.json();
+    document.querySelector("#commandPath").textContent = data.path
+      ? `本地文件：${data.path}`
+      : "";
+    editor.value = data.content || "";
+
+    if (!data.items.length) {
+      list.innerHTML = `<tr><td colspan="7" class="empty">命令库为空</td></tr>`;
+      if (clearNotice) notice.textContent = "";
+      return;
+    }
+
+    renderCommandList(data.items);
+    if (clearNotice) notice.textContent = "";
+  } catch (error) {
+    list.innerHTML = `<tr><td colspan="7" class="empty">读取失败</td></tr>`;
+    notice.textContent = `读取命令库失败：${error.message || "详情看后台日志"}`;
+  }
+}
+
+function renderCommandList(items) {
+  const list = document.querySelector("#commandList");
+  const tableWrap = document.querySelector("#commandTableWrap");
+  const toggleButton = document.querySelector("#toggleCommandList");
+
+  tableWrap.hidden = !commandListExpanded;
+  toggleButton.textContent = commandListExpanded ? "收起命令列表" : "展开命令列表";
+
+  if (!items.length) {
+    list.innerHTML = `<tr><td colspan="7" class="empty">命令库为空</td></tr>`;
+    return;
+  }
+
+  list.innerHTML = items
+    .map(
+      (item, index) => `
+        <tr>
+          <td>${escapeHtml(item.trigger)}</td>
+          <td>${escapeHtml(item.usage)}</td>
+          <td>${escapeHtml(text(item.description, "-"))}</td>
+          <td>${item.manager_only ? "管理员" : "所有人"}</td>
+          <td>${escapeHtml(commandScopeLabel(item.scopes))}</td>
+          <td>${escapeHtml(item.handler)}</td>
+          <td>
+            <button
+              class="delete-command-button danger"
+              type="button"
+              data-index="${index}"
+            >
+              删除
+            </button>
+          </td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+async function saveCommands() {
+  const button = document.querySelector("#saveCommands");
+  const notice = document.querySelector("#commandNotice");
+  const content = document.querySelector("#commandEditor").value;
+
+  button.disabled = true;
+  notice.textContent = "保存中";
+  try {
+    const response = await fetch("/api/commands", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    if (!response.ok) throw new Error(await readErrorMessage(response, "保存命令库失败"));
+
+    const data = await response.json();
+    document.querySelector("#commandEditor").value = data.content || content;
+    notice.textContent = `已保存，共 ${data.items.length} 条命令`;
+    await refreshCommands();
+    await refreshLogs();
+  } catch (error) {
+    notice.textContent = `保存命令库失败：${error.message || "详情看后台日志"}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function toggleCommandList() {
+  commandListExpanded = !commandListExpanded;
+  try {
+    renderCommandList(readCommandEditorItems());
+  } catch {
+    document.querySelector("#commandTableWrap").hidden = !commandListExpanded;
+    document.querySelector("#toggleCommandList").textContent = commandListExpanded
+      ? "收起命令列表"
+      : "展开命令列表";
+  }
+}
+
+function addCommand() {
+  const notice = document.querySelector("#commandNotice");
+  try {
+    const items = readCommandEditorItems();
+    items.push(makeCommandTemplate(items));
+    writeCommandEditorItems(items);
+    notice.textContent = "已添加到编辑区，保存命令库后生效";
+  } catch (error) {
+    notice.textContent = `添加失败：${error.message || "请先修复 JSON"}`;
+  }
+}
+
+function deleteCommand(button) {
+  const notice = document.querySelector("#commandNotice");
+  const index = Number(button.dataset.index);
+  try {
+    const items = readCommandEditorItems();
+    if (index < 0 || index >= items.length) {
+      throw new Error("命令不存在");
+    }
+    const removed = items.splice(index, 1)[0];
+    writeCommandEditorItems(items);
+    notice.textContent = `已删除 ${removed.trigger || removed.name || "命令"}，保存命令库后生效`;
+  } catch (error) {
+    notice.textContent = `删除失败：${error.message || "请先修复 JSON"}`;
+  }
 }
 
 async function refreshSettings() {
@@ -984,6 +1155,7 @@ async function saveSettings(event) {
 async function refreshAll() {
   await refreshStatus();
   await refreshSettings();
+  await refreshCommands();
   await refreshConversations();
   await refreshStats();
   await refreshLogs();
@@ -993,6 +1165,16 @@ async function refreshAll() {
 document.querySelector("#refreshStatus").addEventListener("click", refreshAll);
 document.querySelector("#testModel").addEventListener("click", testModelConnection);
 document.querySelector("#refreshLogs").addEventListener("click", refreshLogs);
+document.querySelector("#refreshCommands").addEventListener("click", () => refreshCommands(true));
+document.querySelector("#saveCommands").addEventListener("click", saveCommands);
+document.querySelector("#toggleCommandList").addEventListener("click", toggleCommandList);
+document.querySelector("#addCommand").addEventListener("click", addCommand);
+document.querySelector("#commandList").addEventListener("click", (event) => {
+  const deleteButton = event.target.closest(".delete-command-button");
+  if (deleteButton) {
+    deleteCommand(deleteButton);
+  }
+});
 document.querySelector("#refreshBackups").addEventListener("click", refreshBackups);
 document.querySelector("#createBackup").addEventListener("click", createBackup);
 document.querySelector("#refreshStats").addEventListener("click", refreshStats);

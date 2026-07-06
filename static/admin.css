@@ -302,7 +302,9 @@ select {
 }
 
 #backupNotice,
-#backupDir {
+#backupDir,
+#commandNotice,
+#commandPath {
   color: var(--muted);
   font-size: 14px;
 }
@@ -316,6 +318,19 @@ select {
 
 .backup-actions {
   margin-bottom: 12px;
+}
+
+.command-editor-field {
+  display: block;
+  margin-top: 16px;
+}
+
+.code-editor {
+  min-height: 320px;
+  font-family: Consolas, "Cascadia Mono", "Microsoft YaHei", monospace;
+  line-height: 1.45;
+  white-space: pre;
+  overflow: auto;
 }
 
 .stats-chart {

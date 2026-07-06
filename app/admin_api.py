@@ -1,3 +1,4 @@
+import json
 from zipfile import BadZipFile
 from datetime import datetime, timedelta, timezone
 
@@ -17,7 +18,7 @@ from .db import (
 )
 from .health_check import collect_health, test_model_connection
 from .memory_store import load_memory, replace_manager_memory, reset_pending_message_count
-from .paths import BACKUPS_DIR, DB_PATH, LOGS_DIR
+from .paths import BACKUPS_DIR, COMMANDS_PATH, DB_PATH, LOGS_DIR
 from .prompts import DEFAULT_GLOBAL_SYSTEM_PROMPT
 from .settings import get_settings, set_setting
 
@@ -67,6 +68,10 @@ class ConversationDebugPayload(BaseModel):
 
 class BackupRestorePayload(BaseModel):
     confirm_text: str = ""
+
+
+class CommandLibraryPayload(BaseModel):
+    content: str
 
 
 @router.get("/status")
@@ -225,6 +230,92 @@ def update_settings(payload: AppSettingsPayload) -> dict:
         set_setting("llm.api_key", api_key)
 
     return {"ok": True, "api_key_updated": bool(api_key)}
+
+
+@router.get("/commands")
+def read_commands() -> dict:
+    try:
+        content = COMMANDS_PATH.read_text(encoding="utf-8")
+        items = json.loads(content)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"读取命令库失败：{exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"命令库 JSON 格式错误：{exc}") from exc
+
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="命令库必须是 JSON 数组。")
+
+    return {
+        "ok": True,
+        "path": str(COMMANDS_PATH),
+        "items": items,
+        "content": json.dumps(items, ensure_ascii=False, indent=2),
+    }
+
+
+@router.patch("/commands")
+def update_commands(payload: CommandLibraryPayload) -> dict:
+    raw = payload.content.strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="命令库内容不能为空。")
+
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"JSON 格式错误：{exc}") from exc
+
+    validate_command_library(items)
+    COMMANDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    COMMANDS_PATH.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    log_event("info", "commands", "command library updated", f"{len(items)} commands")
+    return {
+        "ok": True,
+        "path": str(COMMANDS_PATH),
+        "items": items,
+        "content": json.dumps(items, ensure_ascii=False, indent=2),
+    }
+
+
+def validate_command_library(items) -> None:
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="命令库必须是 JSON 数组。")
+
+    names = set()
+    triggers = set()
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail=f"第 {index} 条命令必须是对象。")
+
+        name = str(item.get("name") or "").strip()
+        trigger = str(item.get("trigger") or "").strip()
+        usage = str(item.get("usage") or "").strip()
+        handler = str(item.get("handler") or "").strip()
+        scopes = item.get("scopes")
+
+        if not name:
+            raise HTTPException(status_code=400, detail=f"第 {index} 条命令缺少 name。")
+        if not trigger:
+            raise HTTPException(status_code=400, detail=f"第 {index} 条命令缺少 trigger。")
+        if not usage:
+            raise HTTPException(status_code=400, detail=f"第 {index} 条命令缺少 usage。")
+        if not handler:
+            raise HTTPException(status_code=400, detail=f"第 {index} 条命令缺少 handler。")
+        if name in names:
+            raise HTTPException(status_code=400, detail=f"命令 name 重复：{name}")
+        if trigger in triggers:
+            raise HTTPException(status_code=400, detail=f"命令 trigger 重复：{trigger}")
+        if not isinstance(scopes, list) or not scopes:
+            raise HTTPException(status_code=400, detail=f"第 {index} 条命令 scopes 必须是非空数组。")
+        if any(scope not in {"group", "private"} for scope in scopes):
+            raise HTTPException(status_code=400, detail=f"第 {index} 条命令 scopes 只能包含 group/private。")
+        if not isinstance(item.get("manager_only"), bool):
+            raise HTTPException(status_code=400, detail=f"第 {index} 条命令 manager_only 必须是布尔值。")
+
+        names.add(name)
+        triggers.add(trigger)
 
 
 @router.get("/conversations")

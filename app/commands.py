@@ -61,7 +61,13 @@ def match_command(text: str, scope_type: str) -> CommandMatch | None:
     if not content.startswith("/"):
         return None
 
-    for command in load_command_library():
+    commands = sorted(
+        load_command_library(),
+        key=lambda item: len(str(item.get("trigger") or "")),
+        reverse=True,
+    )
+
+    for command in commands:
         scopes = command.get("scopes") or []
         if scopes and scope_type not in scopes:
             continue
