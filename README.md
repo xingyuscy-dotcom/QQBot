@@ -50,7 +50,7 @@ start-qqbot-v2.bat
 
 ```text
 Local web: http://127.0.0.1:6185/
-NapCat reverse websocket: ws://localhost:6199/onebot/ws
+NapCat reverse websocket: ws://127.0.0.1:6199/onebot/ws
 ```
 
 后台地址：
@@ -70,10 +70,10 @@ http://127.0.0.1:6185/
 在 NapCat 中添加反向 WebSocket，地址填：
 
 ```text
-ws://localhost:6199/onebot/ws
+ws://127.0.0.1:6199/onebot/ws
 ```
 
-如果机器人和 NapCat 不在同一台机器，把 `localhost` 改成运行 QQbot_v2 的机器 IP。
+如果机器人和 NapCat 不在同一台机器，把 `127.0.0.1` 改成运行 QQbot_v2 的机器 IP。
 
 ## 后台配置
 
@@ -212,7 +212,7 @@ backups/
 4. 运行 `.\start.ps1`，或双击 `start-qqbot-v2.bat`。
 5. 打开 `http://127.0.0.1:6185/`。
 6. 填入 DeepSeek API Key、模型、管理员 QQ。
-7. 在 NapCat 中配置反向 WebSocket：`ws://localhost:6199/onebot/ws`。
+7. 在 NapCat 中配置反向 WebSocket：`ws://127.0.0.1:6199/onebot/ws`。
 8. 在 QQ 群或私聊发送测试消息。
 
 ## 注意

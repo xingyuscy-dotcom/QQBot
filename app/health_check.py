@@ -127,7 +127,7 @@ def _check_onebot_port(settings: dict[str, str]) -> dict[str, Any]:
 
     return {
         "listening": listening,
-        "address": f"ws://localhost:{port}{path}",
+        "address": f"ws://127.0.0.1:{port}{path}",
         "detail": detail,
     }
 

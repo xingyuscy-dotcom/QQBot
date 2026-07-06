@@ -173,7 +173,7 @@ try {
   Write-Host ""
   Write-Host "QQbot_v2 is ready."
   Write-Host "Local web: http://127.0.0.1:$AdminPort/"
-  Write-Host "NapCat reverse websocket: ws://localhost:$OneBotPort/onebot/ws"
+  Write-Host "NapCat reverse websocket: ws://127.0.0.1:$OneBotPort/onebot/ws"
   Write-Host "Press Ctrl+C to stop QQbot_v2."
 
   if (-not $NoOpenBrowser) {

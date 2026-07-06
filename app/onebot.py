@@ -29,8 +29,9 @@ LEARNING_TASKS: set[str] = set()
 @router.websocket("/onebot/ws")
 async def onebot_ws(websocket: WebSocket) -> None:
     await websocket.accept()
-    current_bot_qq: str | None = None
+    current_bot_qq = "connected"
     client = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
+    upsert_bot_status(current_bot_qq, connected=True, nickname="NapCat connected")
     log_event("info", "onebot", "NapCat websocket connected", client)
 
     try:
@@ -38,6 +39,8 @@ async def onebot_ws(websocket: WebSocket) -> None:
             event = await websocket.receive_json()
             bot_qq = event.get("self_id")
             if bot_qq is not None:
+                if current_bot_qq == "connected":
+                    upsert_bot_status(current_bot_qq, connected=False, nickname="NapCat connected")
                 current_bot_qq = str(bot_qq)
                 upsert_bot_status(current_bot_qq, connected=True)
             await handle_event(websocket, event)
