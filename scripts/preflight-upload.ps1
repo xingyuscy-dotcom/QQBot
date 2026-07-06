@@ -75,6 +75,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   "README.md",
   ".gitignore",
   "start.ps1",
+  "start-qqbot-v2.bat",
   "requirements.txt",
   "config.example.json",
   "data/commands.json",

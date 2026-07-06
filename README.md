@@ -40,6 +40,12 @@ cd D:\QQBot\QQbot_v2
 .\start.ps1
 ```
 
+也可以双击仓库里的快捷启动脚本：
+
+```text
+start-qqbot-v2.bat
+```
+
 启动成功后命令行会输出：
 
 ```text
@@ -197,7 +203,7 @@ backups/
 1. 安装 Python 3.11 或更高版本。
 2. 安装并登录 NapCat。
 3. 克隆仓库，只进入 `QQbot_v2` 目录。
-4. 运行 `.\start.ps1`。
+4. 运行 `.\start.ps1`，或双击 `start-qqbot-v2.bat`。
 5. 打开 `http://127.0.0.1:6185/`。
 6. 填入 DeepSeek API Key、模型、管理员 QQ。
 7. 在 NapCat 中配置反向 WebSocket：`ws://localhost:6199/onebot/ws`。
