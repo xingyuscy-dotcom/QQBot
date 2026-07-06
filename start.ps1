@@ -1,6 +1,7 @@
 param(
   [int]$AdminPort = 6185,
-  [int]$OneBotPort = 6199
+  [int]$OneBotPort = 6199,
+  [switch]$NoOpenBrowser
 )
 
 $ErrorActionPreference = "Stop"
@@ -143,6 +144,21 @@ function Wait-PortReady {
   throw "Service port did not become ready: $Port"
 }
 
+function Open-AdminWeb {
+  param(
+    [int]$Port
+  )
+
+  $Url = "http://127.0.0.1:$Port/"
+  try {
+    Write-Host "Opening local web: $Url"
+    Start-Process -FilePath $Url
+  } catch {
+    Write-Host "Could not open browser automatically. Please open this URL manually:"
+    Write-Host $Url
+  }
+}
+
 $Processes = @()
 try {
   $Processes += Start-QQbotServer -Name "Admin" -Port $AdminPort
@@ -159,6 +175,10 @@ try {
   Write-Host "Local web: http://127.0.0.1:$AdminPort/"
   Write-Host "NapCat reverse websocket: ws://localhost:$OneBotPort/onebot/ws"
   Write-Host "Press Ctrl+C to stop QQbot_v2."
+
+  if (-not $NoOpenBrowser) {
+    Open-AdminWeb -Port $AdminPort
+  }
 
   Wait-Process -Id ($Processes | Select-Object -ExpandProperty Id)
 } finally {

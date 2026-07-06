@@ -31,7 +31,7 @@ Python 依赖在首次启动时会自动安装到项目内 `.venv`。
 进入项目目录：
 
 ```powershell
-cd D:\QQBot\QQbot_v2
+cd 你的仓库目录
 ```
 
 启动：
@@ -46,7 +46,7 @@ cd D:\QQBot\QQbot_v2
 start-qqbot-v2.bat
 ```
 
-启动成功后命令行会输出：
+启动成功后会自动打开后台网页，并在命令行输出：
 
 ```text
 Local web: http://127.0.0.1:6185/
@@ -57,6 +57,12 @@ NapCat reverse websocket: ws://localhost:6199/onebot/ws
 
 ```text
 http://127.0.0.1:6185/
+```
+
+如果不想自动打开浏览器，可以运行：
+
+```powershell
+.\start.ps1 -NoOpenBrowser
 ```
 
 ## NapCat 配置
@@ -202,7 +208,7 @@ backups/
 
 1. 安装 Python 3.11 或更高版本。
 2. 安装并登录 NapCat。
-3. 克隆仓库，只进入 `QQbot_v2` 目录。
+3. 克隆仓库，进入仓库目录。
 4. 运行 `.\start.ps1`，或双击 `start-qqbot-v2.bat`。
 5. 打开 `http://127.0.0.1:6185/`。
 6. 填入 DeepSeek API Key、模型、管理员 QQ。
