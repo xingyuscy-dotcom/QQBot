@@ -1,0 +1,15 @@
+{
+  "llm.base_url": "https://api.deepseek.com",
+  "llm.api_key": "",
+  "llm.model": "deepseek-v4-flash",
+  "llm.temperature": "0.8",
+  "llm.max_tokens": "800",
+  "bot.global_system_prompt": "",
+  "bot.manager_qqs": "",
+  "bot.memory_batch_size": "40",
+  "bot.test_reply_enabled": "1",
+  "onebot.ws_path": "/onebot/ws",
+  "onebot.listen_host": "0.0.0.0",
+  "onebot.listen_port": "6199",
+  "admin.listen_port": "6185"
+}

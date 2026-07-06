@@ -1,0 +1,254 @@
+[
+  {
+    "name": "memory_view",
+    "trigger": "/记忆 查看",
+    "usage": "/记忆 查看",
+    "description": "查看当前会话的管理员长期记忆",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "memory_view"
+  },
+  {
+    "name": "memory_add",
+    "trigger": "/记忆 添加",
+    "usage": "/记忆 添加 内容",
+    "description": "给当前会话添加一条管理员长期记忆",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "memory_add"
+  },
+  {
+    "name": "memory_delete",
+    "trigger": "/记忆 删除",
+    "usage": "/记忆 删除 编号",
+    "description": "删除当前会话指定编号的管理员长期记忆",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "memory_delete"
+  },
+  {
+    "name": "memory_clear",
+    "trigger": "/记忆 清空",
+    "usage": "/记忆 清空",
+    "description": "清空当前会话的管理员长期记忆",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "memory_clear"
+  },
+  {
+    "name": "memory_default",
+    "trigger": "/记忆",
+    "usage": "/记忆",
+    "description": "查看记忆指令帮助，未带参数时等同于 /记忆 查看",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "memory_help"
+  },
+  {
+    "name": "learning_view",
+    "trigger": "/学习 查看",
+    "usage": "/学习 查看",
+    "description": "查看当前会话学习记忆",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "learning_view"
+  },
+  {
+    "name": "learning_update",
+    "trigger": "/学习 更新",
+    "usage": "/学习 更新",
+    "description": "立即更新当前会话学习记忆",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "learning_update"
+  },
+  {
+    "name": "learning_enable",
+    "trigger": "/学习 开启",
+    "usage": "/学习 开启",
+    "description": "开启当前会话学习",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "learning_enable"
+  },
+  {
+    "name": "learning_disable",
+    "trigger": "/学习 关闭",
+    "usage": "/学习 关闭",
+    "description": "关闭当前会话学习",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "learning_disable"
+  },
+  {
+    "name": "learning_batch",
+    "trigger": "/学习 批量",
+    "usage": "/学习 批量 数量",
+    "description": "设置当前会话累计多少条消息后自动更新学习记忆，0 表示使用全局批量",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "learning_batch"
+  },
+  {
+    "name": "learning_clear_pending",
+    "trigger": "/学习 清空缓存",
+    "usage": "/学习 清空缓存",
+    "description": "清空当前会话待学习消息数",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "learning_clear_pending"
+  },
+  {
+    "name": "learning_default",
+    "trigger": "/学习",
+    "usage": "/学习",
+    "description": "查看学习记忆指令帮助",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "learning_help"
+  },
+  {
+    "name": "help",
+    "trigger": "/帮助",
+    "usage": "/帮助",
+    "description": "查看当前可用指令和用法",
+    "manager_only": false,
+    "scopes": ["group", "private"],
+    "handler": "command_help"
+  },
+  {
+    "name": "backup_create",
+    "trigger": "/备份",
+    "usage": "/备份",
+    "description": "创建一次本地备份",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "backup_create"
+  },
+  {
+    "name": "backup_list",
+    "trigger": "/备份列表",
+    "usage": "/备份列表",
+    "description": "查看最近的本地备份",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "backup_list"
+  },
+  {
+    "name": "health_check",
+    "trigger": "/健康检查",
+    "usage": "/健康检查",
+    "description": "查看机器人运行健康状态",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "health_check"
+  },
+  {
+    "name": "conversation_status",
+    "trigger": "/状态",
+    "usage": "/状态",
+    "description": "查看当前会话的机器人状态",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "conversation_status"
+  },
+  {
+    "name": "conversation_enable",
+    "trigger": "/启用",
+    "usage": "/启用",
+    "description": "启用当前会话机器人",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "conversation_enable"
+  },
+  {
+    "name": "conversation_disable",
+    "trigger": "/停用",
+    "usage": "/停用",
+    "description": "停用当前会话机器人",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "conversation_disable"
+  },
+  {
+    "name": "persona_view",
+    "trigger": "/人设 查看",
+    "usage": "/人设 查看",
+    "description": "查看当前会话人设",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "persona_view"
+  },
+  {
+    "name": "persona_set",
+    "trigger": "/人设 设置",
+    "usage": "/人设 设置 内容",
+    "description": "设置当前会话人设",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "persona_set"
+  },
+  {
+    "name": "persona_clear",
+    "trigger": "/人设 清空",
+    "usage": "/人设 清空",
+    "description": "清空当前会话人设",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "persona_clear"
+  },
+  {
+    "name": "persona_default",
+    "trigger": "/人设",
+    "usage": "/人设",
+    "description": "查看人设指令帮助",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "persona_help"
+  },
+  {
+    "name": "mode_view",
+    "trigger": "/模式 查看",
+    "usage": "/模式 查看",
+    "description": "查看当前会话回复模式",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "mode_view"
+  },
+  {
+    "name": "mode_mention",
+    "trigger": "/模式 @机器人",
+    "usage": "/模式 @机器人",
+    "description": "设置群聊为仅 @ 机器人时回复",
+    "manager_only": true,
+    "scopes": ["group"],
+    "handler": "mode_mention"
+  },
+  {
+    "name": "mode_prefix",
+    "trigger": "/模式 前缀",
+    "usage": "/模式 前缀 /bot",
+    "description": "设置群聊为指定前缀触发",
+    "manager_only": true,
+    "scopes": ["group"],
+    "handler": "mode_prefix"
+  },
+  {
+    "name": "mode_all",
+    "trigger": "/模式 全部消息",
+    "usage": "/模式 全部消息",
+    "description": "设置为所有消息都触发回复",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "mode_all"
+  },
+  {
+    "name": "mode_default",
+    "trigger": "/模式",
+    "usage": "/模式",
+    "description": "查看回复模式指令帮助",
+    "manager_only": true,
+    "scopes": ["group", "private"],
+    "handler": "mode_help"
+  }
+]

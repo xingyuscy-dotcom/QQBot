@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QQbot_v2</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>QQbot_v2</h1>
+      <p>后台控制台</p>
+    </div>
+    <button id="refreshStatus" type="button">刷新</button>
+  </header>
+
+  <main class="layout">
+    <section class="panel status-panel">
+      <div class="panel-heading">
+        <h2>运行状态</h2>
+        <button id="testModel" class="secondary" type="button">测试模型连接</button>
+      </div>
+      <dl id="statusGrid" class="status-grid">
+        <div><dt>服务</dt><dd>检查中</dd></div>
+        <div><dt>数据库</dt><dd>检查中</dd></div>
+        <div><dt>OneBot</dt><dd>{{ settings.get("onebot.listen_port", "6199") }} {{ settings.get("onebot.ws_path", "/onebot/ws") }}</dd></div>
+        <div><dt>后台端口</dt><dd>{{ settings.get("admin.listen_port", "6185") }}</dd></div>
+      </dl>
+      <div id="healthNotice" class="health-notice"></div>
+    </section>
+
+    <section class="panel">
+      <h2>模型配置</h2>
+      <form id="settingsForm" class="field-grid">
+        <label>
+          <span>Base URL</span>
+          <input name="llm_base_url">
+        </label>
+        <label>
+          <span>API Key</span>
+          <input name="llm_api_key" type="password" placeholder="留空表示不修改">
+        </label>
+        <label>
+          <span>Model</span>
+          <select name="llm_model">
+            <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+            <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+          </select>
+        </label>
+        <label>
+          <span>Temperature</span>
+          <input name="llm_temperature">
+        </label>
+        <label>
+          <span>Max Tokens</span>
+          <input name="llm_max_tokens">
+        </label>
+        <label>
+          <span>管理员 QQ</span>
+          <input name="bot_manager_qqs" placeholder="多个 QQ 用逗号分隔">
+        </label>
+        <label>
+          <span>记忆学习批量</span>
+          <input name="bot_memory_batch_size" placeholder="默认 40">
+        </label>
+        <label class="wide-field">
+          <span>全局人设</span>
+          <textarea name="bot_global_system_prompt"></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="submit">保存配置</button>
+          <span id="settingsNotice"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel wide-panel">
+      <h2>会话列表</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>名称</th>
+              <th>机器人</th>
+              <th>会话 ID</th>
+              <th>状态</th>
+              <th>回复模式</th>
+              <th>频控</th>
+              <th>消息</th>
+              <th>最近消息</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="conversationList">
+            <tr><td colspan="10" class="empty">加载中</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel wide-panel">
+      <div class="panel-heading">
+        <h2>信息统计</h2>
+        <div class="heading-actions">
+          <select id="statsDays">
+            <option value="1">1天</option>
+            <option value="7" selected>7天</option>
+            <option value="30">30天</option>
+          </select>
+          <button id="refreshStats" class="secondary" type="button">刷新统计</button>
+        </div>
+      </div>
+      <canvas id="statsChart" class="stats-chart" width="1200" height="300"></canvas>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>名称</th>
+              <th>会话 ID</th>
+              <th>接收</th>
+              <th>输出</th>
+              <th>模型请求</th>
+              <th>Prompt Token</th>
+              <th>Completion Token</th>
+              <th>Total Token</th>
+            </tr>
+          </thead>
+          <tbody id="statsList">
+            <tr><td colspan="9" class="empty">加载中</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel wide-panel">
+      <div class="panel-heading">
+        <h2>备份</h2>
+        <div class="heading-actions">
+          <button id="createBackup" type="button">创建备份</button>
+          <button id="refreshBackups" class="secondary" type="button">刷新备份</button>
+        </div>
+      </div>
+      <p class="section-note">
+        备份包含数据库、记忆文件、命令库和日志。
+        <span id="backupDir"></span>
+      </p>
+      <div class="form-actions backup-actions">
+        <span id="backupNotice"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>文件名</th>
+              <th>大小</th>
+              <th>创建时间</th>
+              <th>本地路径</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="backupList">
+            <tr><td colspan="5" class="empty">加载中</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel wide-panel">
+      <div class="panel-heading">
+        <h2>运行日志</h2>
+        <button id="refreshLogs" class="secondary" type="button">刷新日志</button>
+      </div>
+      <div class="table-wrap">
+        <table class="log-table">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>等级</th>
+              <th>来源</th>
+              <th>消息</th>
+              <th>详情</th>
+            </tr>
+          </thead>
+          <tbody id="runtimeLogList">
+            <tr><td colspan="5" class="empty">加载中</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="personaDialog" class="dialog-backdrop" hidden>
+    <section class="dialog-panel">
+      <header class="dialog-header">
+        <h2 id="personaTitle">会话设置</h2>
+        <button id="closePersona" class="secondary icon-button" type="button">×</button>
+      </header>
+      <label class="wide-field">
+        <span>会话人格设定</span>
+        <textarea id="personaText" placeholder="只影响当前会话"></textarea>
+      </label>
+      <label class="wide-field">
+        <span>管理员长期记忆</span>
+        <textarea id="managerMemoryText" placeholder="每行一条，可在 QQ 内用 /记忆 添加 内容 修改"></textarea>
+      </label>
+      <label class="wide-field">
+        <span>学习记忆预览</span>
+        <pre id="learnedMemoryPreview" class="memory-preview"></pre>
+      </label>
+      <label class="wide-field">
+        <span>学习批量</span>
+        <input id="learningBatchSize" type="number" min="0" step="1" placeholder="0 表示使用全局批量">
+      </label>
+      <div class="debug-panel">
+        <div class="panel-heading compact-heading">
+          <h2>会话调试</h2>
+          <button id="refreshDebug" class="secondary" type="button">刷新调试</button>
+        </div>
+        <label class="wide-field">
+          <span>最近消息</span>
+          <pre id="recentMessagesPreview" class="memory-preview debug-preview"></pre>
+        </label>
+        <label class="wide-field">
+          <span>提示词预览</span>
+          <pre id="promptPreview" class="memory-preview debug-preview"></pre>
+        </label>
+        <label class="wide-field">
+          <span>测试消息</span>
+          <textarea id="debugTestText"></textarea>
+        </label>
+        <div class="form-actions">
+          <button id="runDebugReply" class="secondary" type="button">生成测试回复</button>
+          <span id="debugNotice"></span>
+        </div>
+        <label class="wide-field">
+          <span>测试回复</span>
+          <pre id="debugReplyPreview" class="memory-preview"></pre>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button id="savePersona" type="button">保存</button>
+        <button id="updateLearnedMemory" class="secondary" type="button">立即更新学习记忆</button>
+        <button id="clearLearningPending" class="secondary" type="button">清空学习缓存</button>
+        <span>学习状态：<strong id="learningState">-</strong></span>
+        <button id="cancelPersona" class="secondary" type="button">取消</button>
+        <span id="personaNotice"></span>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/admin.js?v=learn-1"></script>
+</body>
+</html>
