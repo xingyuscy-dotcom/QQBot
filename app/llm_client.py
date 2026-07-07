@@ -5,12 +5,24 @@ from typing import Any
 
 from .commands import is_memory_command_text
 from .db import ScopeType, get_recent_conversation_messages
+from .hot_store import format_hot_for_prompt, has_hot_intent, search_hot_topics
+from .knowledge_store import format_knowledge_for_prompt, search_knowledge
 from .memory_store import format_memory_for_prompt, load_memory
 from .prompts import DEFAULT_GLOBAL_SYSTEM_PROMPT
 from .settings import get_settings
 
 
 DEFAULT_CONTEXT_MESSAGE_LIMIT = 8
+MINIMUM_REPLY = "这个我现在没查到靠谱信息，先不瞎说。"
+KNOWLEDGE_FORCE_PREFIXES = ("查知识库", "知识库", "/知识库")
+HOT_FORCE_PREFIXES = ("/热点", "热点", "热搜", "热榜")
+KNOWLEDGE_DOMAIN_WORDS = (
+    "游戏", "电竞", "动漫", "动画", "漫画", "新番", "番剧", "手游", "主机", "单机",
+    "Steam", "steam", "任天堂", "索尼", "PlayStation", "PS5", "Xbox", "Switch",
+    "英雄联盟", "LOL", "lol", "LPL", "LCK", "S赛", "世界赛", "全球总决赛", "MSI",
+    "王者荣耀", "DOTA", "CS2", "Valorant", "瓦罗兰特",
+    "原神", "崩坏", "星穹铁道", "明日方舟", "FGO", "二次元",
+)
 
 
 class LLMError(RuntimeError):
@@ -62,6 +74,17 @@ def generate_reply_result(
     exclude_latest_user_message: bool = False,
 ) -> LLMResult:
     settings = get_settings()
+    if should_return_minimum_for_missing_knowledge(
+        bot_qq,
+        scope_type,
+        scope_id,
+        config,
+        settings,
+        current_text,
+        exclude_latest_user_message,
+    ):
+        return LLMResult(reply=MINIMUM_REPLY, model="", usage={})
+
     messages = build_messages(
         bot_qq,
         scope_type,
@@ -89,10 +112,23 @@ def build_messages(
     memory_weight = parse_float(config.get("learned_memory_weight"), 0.4)
     context_limit = parse_context_limit(config.get("context_message_limit"))
     memory_prompt = format_memory_for_prompt(load_memory(bot_qq, scope_type, scope_id), memory_weight)
-    context_prompt = format_readonly_context(
-        load_readonly_context(bot_qq, scope_type, scope_id, context_limit, exclude_latest_user_message)
+    context_items = load_readonly_context(
+        bot_qq,
+        scope_type,
+        scope_id,
+        context_limit,
+        exclude_latest_user_message,
     )
+    context_prompt = format_readonly_context(context_items)
     current_text = str(current_text or "").strip()
+    knowledge_items = collect_knowledge_items(settings, current_text, context_items)
+    knowledge_prompt = format_knowledge_for_prompt(
+        "",
+        limit=len(knowledge_items),
+        items=knowledge_items,
+    ) if knowledge_items else ""
+    hot_items = collect_hot_items(settings, current_text, context_items)
+    hot_prompt = format_hot_for_prompt(hot_items) if hot_items else ""
 
     system_parts = [
         global_prompt or DEFAULT_GLOBAL_SYSTEM_PROMPT,
@@ -111,12 +147,96 @@ def build_messages(
         system_parts.append(f"本会话额外人设要求：{persona}")
     if context_prompt:
         system_parts.append(context_prompt)
+    if knowledge_prompt:
+        system_parts.append(knowledge_prompt)
+    if hot_prompt:
+        system_parts.append(hot_prompt)
 
     messages: list[dict[str, str]] = [{"role": "system", "content": "\n".join(system_parts)}]
     if current_text and not is_memory_command_text(current_text):
         messages.append({"role": "user", "content": f"当前消息：{current_text}"})
 
     return messages
+
+
+def collect_knowledge_items(
+    settings: dict[str, str],
+    current_text: str,
+    context_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    current_text = str(current_text or "").strip()
+    if not current_text or settings.get("knowledge.enabled", "1").strip() == "0":
+        return []
+
+    force_prefix, force_query = parse_knowledge_force_query(
+        current_text,
+        settings.get("knowledge.force_prefixes", ""),
+    )
+    sensitivity = normalize_knowledge_sensitivity(settings.get("knowledge.sensitivity", "medium"))
+    if not force_prefix and not should_search_knowledge(current_text, sensitivity):
+        return []
+
+    query = force_query if force_prefix else build_knowledge_query(current_text, context_items, sensitivity)
+    max_items = min(12, max(1, parse_int(settings.get("knowledge.max_items"), 5)))
+    return search_knowledge(query, limit=max_items)
+
+
+def collect_hot_items(
+    settings: dict[str, str],
+    current_text: str,
+    context_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    current_text = str(current_text or "").strip()
+    if not current_text or settings.get("knowledge.enabled", "1").strip() == "0":
+        return []
+
+    force_prefix, force_query = parse_hot_force_query(current_text)
+    sensitivity = normalize_knowledge_sensitivity(settings.get("knowledge.sensitivity", "medium"))
+    max_items = min(8, max(1, parse_int(settings.get("knowledge.max_items"), 5)))
+    if force_prefix:
+        query = force_query
+    elif should_search_hot(current_text):
+        query = build_knowledge_query(current_text, context_items, sensitivity)
+    else:
+        query = current_text
+    return search_hot_topics(query, limit=max_items)
+
+
+def should_return_minimum_for_missing_knowledge(
+    bot_qq: str,
+    scope_type: ScopeType,
+    scope_id: str,
+    config: dict[str, Any],
+    settings: dict[str, str],
+    current_text: str,
+    exclude_latest_user_message: bool = False,
+) -> bool:
+    current_text = str(current_text or "").strip()
+    if not current_text or settings.get("knowledge.enabled", "1").strip() == "0":
+        return False
+
+    force_prefix, force_query = parse_knowledge_force_query(
+        current_text,
+        settings.get("knowledge.force_prefixes", ""),
+    )
+    hot_force_prefix, _ = parse_hot_force_query(current_text)
+    if hot_force_prefix or (not force_prefix and should_search_hot(current_text)):
+        return False
+
+    sensitivity = normalize_knowledge_sensitivity(settings.get("knowledge.sensitivity", "medium"))
+    if not force_prefix and not should_search_knowledge(current_text, sensitivity):
+        return False
+
+    context_limit = parse_context_limit(config.get("context_message_limit"))
+    context_items = load_readonly_context(
+        bot_qq,
+        scope_type,
+        scope_id,
+        context_limit,
+        exclude_latest_user_message,
+    )
+    query = force_query if force_prefix else build_knowledge_query(current_text, context_items, sensitivity)
+    return not search_knowledge(query, limit=1)
 
 
 def load_readonly_context(
@@ -174,6 +294,80 @@ def trim_context_text(value: Any, limit: int = 120) -> str:
     return text[:limit]
 
 
+def build_knowledge_query(
+    current_text: str,
+    context_items: list[dict[str, Any]],
+    sensitivity: str = "medium",
+) -> str:
+    context_count = {"low": 0, "medium": 1, "high": 3}.get(sensitivity, 1)
+    context_text = " ".join(str(item.get("text") or "") for item in context_items[-context_count:]) if context_count else ""
+    return f"{context_text} {current_text}".strip()
+
+
+def parse_knowledge_force_query(text: str, prefixes: str) -> tuple[bool, str]:
+    content = text.strip()
+    prefix_items = [item.strip() for item in prefixes.split(",") if item.strip()]
+    prefix_items.extend(item for item in KNOWLEDGE_FORCE_PREFIXES if item not in prefix_items)
+    for prefix in prefix_items:
+        if content == prefix:
+            return True, content
+        if content.startswith(prefix + " ") or content.startswith(prefix + "：") or content.startswith(prefix + ":"):
+            return True, content[len(prefix):].lstrip(" ：:")
+    return False, content
+
+
+def parse_hot_force_query(text: str) -> tuple[bool, str]:
+    content = text.strip()
+    for prefix in HOT_FORCE_PREFIXES:
+        if content == prefix:
+            return True, content
+        if content.startswith(prefix + " ") or content.startswith(prefix + "：") or content.startswith(prefix + ":"):
+            return True, content[len(prefix):].lstrip(" ：:")
+    return False, content
+
+
+def normalize_knowledge_sensitivity(value: str | None) -> str:
+    value = str(value or "medium").strip().lower()
+    return value if value in {"off", "low", "medium", "high"} else "medium"
+
+
+def should_search_knowledge(text: str, sensitivity: str) -> bool:
+    if sensitivity == "off":
+        return False
+    content = text.strip()
+    if not content:
+        return False
+
+    has_date = bool(re_search(r"(20\d{2}|19\d{2}|(?<!\d)\d{2}\s*年|今年|去年|今天|昨天|最近|现在|本月|上月)", content))
+    has_question = any(word in content for word in ("什么", "怎么", "为啥", "为什么", "多少", "谁", "哪", "新闻", "事件", "发生", "情况", "进展"))
+    has_entity = any(word in content for word in (
+        "特朗普", "拜登", "美国", "中国", "俄乌", "乌克兰", "俄罗斯", "以色列", "加沙",
+        "人工智能", "大模型", "英伟达", "AI", "Nvidia", "Trump", "Ukraine",
+    ))
+    has_domain = any(word in content for word in KNOWLEDGE_DOMAIN_WORDS)
+
+    if sensitivity == "low":
+        return has_date and (has_question or has_entity or has_domain)
+    if sensitivity == "high":
+        return has_date or has_question or has_entity or has_domain
+    return (
+        (has_date and has_question)
+        or (has_entity and has_question)
+        or (has_date and has_entity)
+        or (has_domain and (has_question or has_date))
+    )
+
+
+def should_search_hot(text: str) -> bool:
+    return has_hot_intent(text)
+
+
+def re_search(pattern: str, text: str) -> bool:
+    import re
+
+    return bool(re.search(pattern, text, flags=re.IGNORECASE))
+
+
 def parse_context_limit(value: Any) -> int:
     try:
         limit = int(value) if value is not None else DEFAULT_CONTEXT_MESSAGE_LIMIT
@@ -228,9 +422,7 @@ def chat_completion_result(settings: dict[str, str], messages: list[dict[str, st
 
     reply = strip_bot_prefix(normalize_content(content).strip())
     if not reply:
-        finish_reason = choice.get("finish_reason")
-        usage = data.get("usage")
-        raise LLMError(f"empty llm reply, finish_reason={finish_reason}, usage={usage}")
+        reply = MINIMUM_REPLY
     return LLMResult(reply=reply[:1800], model=str(data.get("model") or model), usage=data.get("usage") or {})
 
 

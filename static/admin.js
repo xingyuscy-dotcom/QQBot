@@ -1,5 +1,6 @@
 let activeConversation = null;
-let commandListExpanded = true;
+let commandListExpanded = false;
+let knowledgeUpdateTimer = null;
 
 function text(value, fallback = "未获取") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
@@ -127,6 +128,12 @@ function formatBytes(size) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function selectedKnowledgeSources() {
+  const values = Array.from(document.querySelectorAll("[name='knowledgeSource']:checked"))
+    .map((item) => item.value);
+  return values.length ? values.join(",") : "current,game,esports,anime,wikidata,daily,holidays,onthisday,hot";
 }
 
 function formatNumber(value) {
@@ -309,12 +316,198 @@ async function inspectBackup(button) {
     const data = await response.json();
     const contains = data.contains || {};
     notice.textContent =
-      `备份内容：数据库${contains.database ? "有" : "无"}，命令库${contains.commands ? "有" : "无"}，` +
+      `备份内容：数据库${contains.database ? "有" : "无"}，知识库${contains.knowledge_database ? "有" : "无"}，热点库${contains.hot_database ? "有" : "无"}，` +
+      `命令库${contains.commands ? "有" : "无"}，` +
       `记忆文件 ${contains.memory_files || 0} 个，日志文件 ${contains.log_files || 0} 个。`;
   } catch (error) {
     notice.textContent = `读取备份失败：${error.message || "详情看后台日志"}`;
   } finally {
     button.disabled = false;
+  }
+}
+
+async function refreshKnowledge() {
+  const statsGrid = document.querySelector("#knowledgeStats");
+  const notice = document.querySelector("#knowledgeNotice");
+  try {
+    const response = await fetch("/api/knowledge");
+    if (!response.ok) throw new Error(await readErrorMessage(response, "读取知识库失败"));
+    const data = await response.json();
+    const stats = data.stats || {};
+    const hotStats = data.hot_stats || {};
+    document.querySelector("#knowledgePath").textContent = data.path
+      ? `本地文件：${data.path}；热点库：${data.hot_path || "-"}`
+      : "";
+    statsGrid.innerHTML = [
+      ["知识条目", formatNumber(stats.item_count)],
+      ["热点条目", formatNumber(hotStats.item_count)],
+      ["日期范围", `${text(stats.first_date, "-")} 到 ${text(stats.latest_date, "-")}`],
+      ["热点日期", `${text(hotStats.first_date, "-")} 到 ${text(hotStats.latest_date, "-")}`],
+      ["系统时间", text(data.system_time, "-")],
+      ["本地最新数据", text(stats.latest_date, "暂无")],
+      ["热点最近更新", text(hotStats.latest_fetched_at, "-")],
+      ["最近更新", text(stats.latest_fetched_at, "-")],
+      ["状态", Number(stats.item_count || 0) > 0 ? "可用" : "空"],
+    ]
+      .map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`)
+      .join("");
+    renderKnowledgeTask(data.update_task || {});
+    if (data.update_task?.running) startKnowledgePolling();
+  } catch (error) {
+    notice.textContent = `读取知识库失败：${error.message || "详情看后台日志"}`;
+  }
+}
+
+async function updateKnowledge() {
+  const button = document.querySelector("#updateKnowledge");
+  const notice = document.querySelector("#knowledgeNotice");
+  const dateFrom = document.querySelector("#knowledgeDateFrom").value || "2025-01-01";
+  const dateTo = document.querySelector("#knowledgeDateTo").value || "";
+  const sources = selectedKnowledgeSources();
+
+  button.disabled = true;
+  notice.textContent = "知识库更新任务已启动";
+  try {
+    const response = await fetch("/api/knowledge/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date_from: dateFrom, date_to: dateTo, sources }),
+    });
+    if (!response.ok) throw new Error(await readErrorMessage(response, "知识库更新失败"));
+
+    const data = await response.json();
+    notice.textContent = data.already_running ? "知识库正在更新中" : "知识库更新中，首次更新可能需要几分钟";
+    renderKnowledgeTask(data.task || {});
+    startKnowledgePolling();
+  } catch (error) {
+    notice.textContent = `知识库更新失败：${error.message || "详情看后台日志"}`;
+    button.disabled = false;
+    stopKnowledgePolling();
+    await refreshLogs();
+  }
+}
+
+async function pollKnowledgeUpdate() {
+  const button = document.querySelector("#updateKnowledge");
+  const notice = document.querySelector("#knowledgeNotice");
+  try {
+    const response = await fetch("/api/knowledge/update-status");
+    if (!response.ok) throw new Error(await readErrorMessage(response, "读取知识库更新状态失败"));
+
+    const data = await response.json();
+    renderKnowledgeTask(data.task || {});
+    if (!data.task?.running) {
+      stopKnowledgePolling();
+      button.disabled = false;
+      notice.textContent = data.task?.status === "error"
+        ? `知识库更新失败：${text(data.task?.error, "详情看脚本输出")}`
+        : "知识库更新完成";
+      await refreshKnowledge();
+      await refreshLogs();
+    }
+  } catch (error) {
+    stopKnowledgePolling();
+    button.disabled = false;
+    notice.textContent = `读取知识库更新状态失败：${error.message || "详情看后台日志"}`;
+  }
+}
+
+function startKnowledgePolling() {
+  stopKnowledgePolling();
+  knowledgeUpdateTimer = window.setInterval(pollKnowledgeUpdate, 1200);
+  pollKnowledgeUpdate().catch(() => {});
+}
+
+function stopKnowledgePolling() {
+  if (knowledgeUpdateTimer) {
+    window.clearInterval(knowledgeUpdateTimer);
+    knowledgeUpdateTimer = null;
+  }
+}
+
+function renderKnowledgeTask(task) {
+  const fill = document.querySelector("#knowledgeProgressFill");
+  const progressText = document.querySelector("#knowledgeProgressText");
+  const etaText = document.querySelector("#knowledgeEtaText");
+  const output = document.querySelector("#knowledgeUpdateOutput");
+  const button = document.querySelector("#updateKnowledge");
+  if (!fill || !progressText || !etaText || !output) return;
+
+  const progress = Math.min(100, Math.max(0, Number(task.progress || 0)));
+  fill.style.width = `${progress}%`;
+  if (button) button.disabled = Boolean(task.running);
+
+  if (!task.status || task.status === "idle") {
+    progressText.textContent = "未开始更新";
+    etaText.textContent = "预计剩余：-";
+  } else {
+    const totalSteps = task.total_steps || task.total_months;
+    const completedSteps = task.completed_steps || task.completed_months || 0;
+    const countText = totalSteps
+      ? `（${Number(completedSteps)}/${totalSteps} 步）`
+      : "";
+    progressText.textContent = `进度 ${progress}% ${countText}`;
+    etaText.textContent = task.running
+      ? `预计剩余：${formatEta(task.eta_seconds)}`
+      : `状态：${task.status === "done" ? "完成" : task.status === "error" ? "失败" : task.status}`;
+  }
+
+  output.textContent = (task.output || []).length
+    ? task.output.join("\n")
+    : "暂无脚本输出";
+  output.scrollTop = output.scrollHeight;
+}
+
+function formatEta(seconds) {
+  if (seconds === null || seconds === undefined || seconds === "") return "计算中";
+  const value = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(value / 60);
+  const rest = value % 60;
+  if (minutes <= 0) return `${rest} 秒`;
+  return `${minutes} 分 ${rest} 秒`;
+}
+
+async function searchKnowledge() {
+  const list = document.querySelector("#knowledgeList");
+  const notice = document.querySelector("#knowledgeNotice");
+  const query = document.querySelector("#knowledgeQuery").value.trim();
+  if (!query) {
+    list.innerHTML = `<tr><td colspan="5" class="empty">请输入关键词搜索</td></tr>`;
+    return;
+  }
+
+  notice.textContent = "搜索中";
+  try {
+    const response = await fetch("/api/knowledge/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, limit: 20 }),
+    });
+    if (!response.ok) throw new Error(await readErrorMessage(response, "搜索知识库失败"));
+
+    const data = await response.json();
+    if (!data.items.length) {
+      list.innerHTML = `<tr><td colspan="5" class="empty">没有匹配条目</td></tr>`;
+      notice.textContent = "没有匹配条目";
+      return;
+    }
+
+    list.innerHTML = data.items
+      .map(
+        (item) => `
+          <tr>
+            <td>${escapeHtml(text(item.event_date, "-"))}</td>
+            <td>${escapeHtml(text(item.category, "-"))}</td>
+            <td>${escapeHtml(text(item.title, "-"))}</td>
+            <td>${escapeHtml(text(item.summary, "-"))}</td>
+            <td>${escapeHtml(text(item.source_url, "-"))}</td>
+          </tr>
+        `
+      )
+      .join("");
+    notice.textContent = `找到 ${data.items.length} 条`;
+  } catch (error) {
+    notice.textContent = `搜索知识库失败：${error.message || "详情看后台日志"}`;
   }
 }
 
@@ -527,6 +720,10 @@ async function refreshSettings() {
   form.elements.llm_max_tokens.value = text(data.llm_max_tokens, "800");
   form.elements.bot_manager_qqs.value = text(data.bot_manager_qqs, "");
   form.elements.bot_memory_batch_size.value = text(data.bot_memory_batch_size, "40");
+  form.elements.knowledge_enabled.value = text(data.knowledge_enabled, "1");
+  form.elements.knowledge_sensitivity.value = text(data.knowledge_sensitivity, "medium");
+  form.elements.knowledge_max_items.value = text(data.knowledge_max_items, "5");
+  form.elements.knowledge_force_prefixes.value = text(data.knowledge_force_prefixes, "查知识库,知识库");
   form.elements.llm_api_key.placeholder = data.api_key_saved
     ? "API Key 已保存，留空不修改"
     : "请输入 API Key";
@@ -916,6 +1113,7 @@ function closePersonaEditor() {
   document.querySelector("#debugNotice").textContent = "";
   document.querySelector("#debugTestText").value = "";
   document.querySelector("#debugReplyPreview").textContent = "";
+  document.querySelector("#knowledgeDebugPreview").textContent = "";
   document.querySelector("#learningBatchSize").value = "0";
   document.querySelector("#learnedMemoryWeight").value = "0.4";
   document.querySelector("#contextMessageLimit").value = "8";
@@ -1080,10 +1278,12 @@ async function loadConversationDebug() {
 
   const recentPreview = document.querySelector("#recentMessagesPreview");
   const promptPreview = document.querySelector("#promptPreview");
+  const knowledgePreview = document.querySelector("#knowledgeDebugPreview");
   const notice = document.querySelector("#debugNotice");
 
   recentPreview.textContent = "加载中";
   promptPreview.textContent = "加载中";
+  knowledgePreview.textContent = "加载中";
   try {
     const response = await fetch(conversationApiPath(activeConversation, "/debug"));
     if (!response.ok) throw new Error(await response.text());
@@ -1091,10 +1291,12 @@ async function loadConversationDebug() {
     const data = await response.json();
     recentPreview.textContent = formatRecentMessages(data.recent_messages);
     promptPreview.textContent = formatPromptMessages(data.prompt_messages);
+    knowledgePreview.textContent = `${text(data.knowledge_preview, "未命中知识库")}\n\n热点库：\n${text(data.hot_preview, "未命中热点库")}`;
     notice.textContent = "";
   } catch {
     recentPreview.textContent = "加载失败";
     promptPreview.textContent = "加载失败";
+    knowledgePreview.textContent = "加载失败";
     notice.textContent = "调试信息加载失败";
   }
 }
@@ -1130,6 +1332,7 @@ async function runDebugReply() {
     const data = await response.json();
     replyPreview.textContent = data.reply || "";
     document.querySelector("#promptPreview").textContent = formatPromptMessages(data.prompt_messages);
+    document.querySelector("#knowledgeDebugPreview").textContent = `${text(data.knowledge_preview, "未命中知识库")}\n\n热点库：\n${text(data.hot_preview, "未命中热点库")}`;
     notice.textContent = "已生成，不会发送到 QQ";
     await refreshLogs();
   } catch (error) {
@@ -1160,6 +1363,10 @@ async function saveSettings(event) {
         llm_max_tokens: text(formData.get("llm_max_tokens"), ""),
         bot_manager_qqs: text(formData.get("bot_manager_qqs"), ""),
         bot_memory_batch_size: text(formData.get("bot_memory_batch_size"), "40"),
+        knowledge_enabled: text(formData.get("knowledge_enabled"), "1"),
+        knowledge_sensitivity: text(formData.get("knowledge_sensitivity"), "medium"),
+        knowledge_max_items: text(formData.get("knowledge_max_items"), "5"),
+        knowledge_force_prefixes: text(formData.get("knowledge_force_prefixes"), "查知识库,知识库"),
         bot_global_system_prompt: text(formData.get("bot_global_system_prompt"), ""),
       }),
     });
@@ -1185,6 +1392,7 @@ async function refreshAll() {
   await refreshCommands();
   await refreshConversations();
   await refreshStats();
+  await refreshKnowledge();
   await refreshLogs();
   await refreshBackups();
 }
@@ -1204,6 +1412,9 @@ document.querySelector("#commandList").addEventListener("click", (event) => {
 });
 document.querySelector("#refreshBackups").addEventListener("click", refreshBackups);
 document.querySelector("#createBackup").addEventListener("click", createBackup);
+document.querySelector("#refreshKnowledge").addEventListener("click", refreshKnowledge);
+document.querySelector("#updateKnowledge").addEventListener("click", updateKnowledge);
+document.querySelector("#searchKnowledge").addEventListener("click", searchKnowledge);
 document.querySelector("#refreshStats").addEventListener("click", refreshStats);
 document.querySelector("#statsDays").addEventListener("change", refreshStats);
 document.querySelector("#backupList").addEventListener("click", (event) => {

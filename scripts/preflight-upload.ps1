@@ -44,6 +44,8 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     if (
       $Normalized -eq "config.local.json" -or
       $Normalized -eq "data/bot.sqlite3" -or
+      $Normalized -eq "data/knowledge.sqlite3" -or
+      $Normalized -eq "data/hot.sqlite3" -or
       $Normalized.StartsWith(".venv/") -or
       $Normalized.StartsWith("data/memories/") -or
       $Normalized.StartsWith("logs/") -or
@@ -58,6 +60,8 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     "config.local.json",
     ".venv/test.txt",
     "data/bot.sqlite3",
+    "data/knowledge.sqlite3",
+    "data/hot.sqlite3",
     "data/memories/test.json",
     "logs/test.log",
     "backups/test.zip",

@@ -168,6 +168,30 @@
     "handler": "command_help"
   },
   {
+    "name": "knowledge_query",
+    "trigger": "/知识库",
+    "usage": "/知识库 内容",
+    "description": "强制检索本地知识库并回答问题",
+    "manager_only": false,
+    "scopes": [
+      "group",
+      "private"
+    ],
+    "handler": "knowledge_query"
+  },
+  {
+    "name": "hot_topics",
+    "trigger": "/热点",
+    "usage": "/热点 或 /热点 微博",
+    "description": "查看本地最近抓取的热点榜单",
+    "manager_only": false,
+    "scopes": [
+      "group",
+      "private"
+    ],
+    "handler": "hot_topics"
+  },
+  {
     "name": "backup_create",
     "trigger": "/备份",
     "usage": "/备份",

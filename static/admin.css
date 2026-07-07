@@ -221,6 +221,12 @@ input {
   font-size: 14px;
 }
 
+input[type="checkbox"] {
+  width: auto;
+  min-height: auto;
+  margin: 0;
+}
+
 textarea {
   width: 100%;
   min-height: 92px;
@@ -285,6 +291,29 @@ select {
   grid-column: 1 / -1;
 }
 
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.checkbox-group legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.checkbox-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 14px;
+}
+
 .form-actions {
   display: flex;
   align-items: center;
@@ -304,7 +333,9 @@ select {
 #backupNotice,
 #backupDir,
 #commandNotice,
-#commandPath {
+#commandPath,
+#knowledgeNotice,
+#knowledgePath {
   color: var(--muted);
   font-size: 14px;
 }
@@ -341,6 +372,49 @@ select {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #ffffff;
+}
+
+.knowledge-progress {
+  margin: 12px 0 14px;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.progress-bar {
+  height: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.progress-fill {
+  width: 0%;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.knowledge-output {
+  min-height: 82px;
+  max-height: 180px;
+  overflow: auto;
+  margin: 10px 0 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: #f9fafb;
+  color: var(--muted);
+  font-family: Consolas, "Cascadia Mono", "Microsoft YaHei", monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
 }
 
 .table-wrap {

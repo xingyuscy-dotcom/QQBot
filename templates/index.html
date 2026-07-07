@@ -64,6 +64,30 @@
           <span>记忆学习批量</span>
           <input name="bot_memory_batch_size" placeholder="默认 40">
         </label>
+        <label>
+          <span>知识库</span>
+          <select name="knowledge_enabled">
+            <option value="1">开启</option>
+            <option value="0">关闭</option>
+          </select>
+        </label>
+        <label>
+          <span>知识库敏感度</span>
+          <select name="knowledge_sensitivity">
+            <option value="low">低</option>
+            <option value="medium">中</option>
+            <option value="high">高</option>
+            <option value="off">关闭</option>
+          </select>
+        </label>
+        <label>
+          <span>知识库最大条数</span>
+          <input name="knowledge_max_items" type="number" min="1" max="12" step="1" placeholder="默认 5">
+        </label>
+        <label>
+          <span>知识库强制前缀</span>
+          <input name="knowledge_force_prefixes" placeholder="查知识库,知识库">
+        </label>
         <label class="wide-field">
           <span>全局人设</span>
           <textarea name="bot_global_system_prompt"></textarea>
@@ -177,6 +201,81 @@
 
     <section class="panel wide-panel">
       <div class="panel-heading">
+        <h2>知识库</h2>
+        <div class="heading-actions">
+          <button id="updateKnowledge" type="button">更新知识库</button>
+          <button id="refreshKnowledge" class="secondary" type="button">刷新知识库</button>
+        </div>
+      </div>
+      <p class="section-note">
+        <span id="knowledgePath"></span>
+        <span>来源比例：中国 70% / 国际 30%</span>
+      </p>
+      <div class="field-grid">
+        <label>
+          <span>开始日期</span>
+          <input id="knowledgeDateFrom" type="date" value="2025-01-01">
+        </label>
+        <label>
+          <span>结束日期</span>
+          <input id="knowledgeDateTo" type="date">
+        </label>
+        <fieldset class="wide-field checkbox-group">
+          <legend>更新领域</legend>
+          <label><input type="checkbox" name="knowledgeSource" value="current" checked> 综合</label>
+          <label><input type="checkbox" name="knowledgeSource" value="game" checked> 游戏</label>
+          <label><input type="checkbox" name="knowledgeSource" value="esports" checked> 电竞</label>
+          <label><input type="checkbox" name="knowledgeSource" value="anime" checked> 动漫</label>
+          <label><input type="checkbox" name="knowledgeSource" value="wikidata" checked> Wikidata</label>
+          <label><input type="checkbox" name="knowledgeSource" value="daily" checked> 日常常识</label>
+          <label><input type="checkbox" name="knowledgeSource" value="holidays" checked> 节假日</label>
+          <label><input type="checkbox" name="knowledgeSource" value="onthisday" checked> 历史上的今天</label>
+          <label><input type="checkbox" name="knowledgeSource" value="hot" checked> 热点</label>
+          <label><input type="checkbox" name="knowledgeSource" value="gdelt"> GDELT 事件</label>
+        </fieldset>
+        <label class="wide-field">
+          <span>搜索测试</span>
+          <input id="knowledgeQuery" placeholder="例如 AI、Steam、英雄联盟、新番">
+        </label>
+      </div>
+      <div class="form-actions backup-actions">
+        <button id="searchKnowledge" class="secondary" type="button">搜索知识库</button>
+        <span id="knowledgeNotice"></span>
+      </div>
+      <div class="knowledge-progress">
+        <div class="progress-meta">
+          <span id="knowledgeProgressText">未开始更新</span>
+          <span id="knowledgeEtaText">预计剩余：-</span>
+        </div>
+        <div class="progress-bar">
+          <div id="knowledgeProgressFill" class="progress-fill"></div>
+        </div>
+        <pre id="knowledgeUpdateOutput" class="knowledge-output">暂无脚本输出</pre>
+      </div>
+      <div id="knowledgeStats" class="status-grid">
+        <div><dt>条目</dt><dd>加载中</dd></div>
+        <div><dt>日期范围</dt><dd>加载中</dd></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>分类</th>
+              <th>标题</th>
+              <th>摘要</th>
+              <th>来源</th>
+            </tr>
+          </thead>
+          <tbody id="knowledgeList">
+            <tr><td colspan="5" class="empty">请输入关键词搜索</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel wide-panel">
+      <div class="panel-heading">
         <h2>备份</h2>
         <div class="heading-actions">
           <button id="createBackup" type="button">创建备份</button>
@@ -184,7 +283,7 @@
         </div>
       </div>
       <p class="section-note">
-        备份包含数据库、记忆文件、命令库和日志。
+        备份包含数据库、知识库、记忆文件、命令库和日志。
         <span id="backupDir"></span>
       </p>
       <div class="form-actions backup-actions">
@@ -275,6 +374,10 @@
         <label class="wide-field">
           <span>提示词预览</span>
           <pre id="promptPreview" class="memory-preview debug-preview"></pre>
+        </label>
+        <label class="wide-field">
+          <span>知识库/热点库命中预览</span>
+          <pre id="knowledgeDebugPreview" class="memory-preview debug-preview"></pre>
         </label>
         <label class="wide-field">
           <span>测试消息</span>

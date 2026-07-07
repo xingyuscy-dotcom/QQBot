@@ -4,7 +4,16 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from .paths import BACKUPS_DIR, COMMANDS_PATH, CONFIG_LOCAL_PATH, DB_PATH, LOGS_DIR, MEMORIES_DIR
+from .paths import (
+    BACKUPS_DIR,
+    COMMANDS_PATH,
+    CONFIG_LOCAL_PATH,
+    DB_PATH,
+    HOT_DB_PATH,
+    KNOWLEDGE_DB_PATH,
+    LOGS_DIR,
+    MEMORIES_DIR,
+)
 
 
 def create_backup() -> dict:
@@ -12,18 +21,28 @@ def create_backup() -> dict:
     name = f"QQbot_v2_backup_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.zip"
     target = BACKUPS_DIR / name
     tmp_db = BACKUPS_DIR / f".{name}.sqlite3"
+    tmp_knowledge_db = BACKUPS_DIR / f".{name}.knowledge.sqlite3"
+    tmp_hot_db = BACKUPS_DIR / f".{name}.hot.sqlite3"
 
     try:
         _copy_sqlite_db(tmp_db)
+        _copy_sqlite_db_to(KNOWLEDGE_DB_PATH, tmp_knowledge_db)
+        _copy_sqlite_db_to(HOT_DB_PATH, tmp_hot_db)
         with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             if tmp_db.exists():
                 archive.write(tmp_db, "data/bot.sqlite3")
+            if tmp_knowledge_db.exists():
+                archive.write(tmp_knowledge_db, "data/knowledge.sqlite3")
+            if tmp_hot_db.exists():
+                archive.write(tmp_hot_db, "data/hot.sqlite3")
             _write_file(archive, CONFIG_LOCAL_PATH, "config.local.json")
             _write_file(archive, COMMANDS_PATH, "data/commands.json")
             _write_dir(archive, MEMORIES_DIR, "data/memories")
             _write_dir(archive, LOGS_DIR, "logs")
     finally:
         tmp_db.unlink(missing_ok=True)
+        tmp_knowledge_db.unlink(missing_ok=True)
+        tmp_hot_db.unlink(missing_ok=True)
 
     return _backup_info(target)
 
@@ -44,6 +63,8 @@ def inspect_backup(name: str) -> dict:
         "file_count": len(files),
         "contains": {
             "database": "data/bot.sqlite3" in files,
+            "knowledge_database": "data/knowledge.sqlite3" in files,
+            "hot_database": "data/hot.sqlite3" in files,
             "local_config": "config.local.json" in files,
             "commands": "data/commands.json" in files,
             "memory_files": sum(1 for item in files if item.startswith("data/memories/")),
@@ -59,6 +80,8 @@ def restore_backup(name: str) -> dict:
 
     with zipfile.ZipFile(path) as archive:
         _restore_file(archive, "data/bot.sqlite3", DB_PATH)
+        _restore_file(archive, "data/knowledge.sqlite3", KNOWLEDGE_DB_PATH)
+        _restore_file(archive, "data/hot.sqlite3", HOT_DB_PATH)
         _restore_file(archive, "config.local.json", CONFIG_LOCAL_PATH)
         _restore_file(archive, "data/commands.json", COMMANDS_PATH)
         _restore_dir(archive, "data/memories/", MEMORIES_DIR)
@@ -84,9 +107,13 @@ def _backup_path(name: str) -> Path:
 
 
 def _copy_sqlite_db(target: Path) -> None:
-    if not DB_PATH.exists():
+    _copy_sqlite_db_to(DB_PATH, target)
+
+
+def _copy_sqlite_db_to(source_path: Path, target: Path) -> None:
+    if not source_path.exists():
         return
-    source = sqlite3.connect(DB_PATH)
+    source = sqlite3.connect(source_path)
     try:
         destination = sqlite3.connect(target)
         try:

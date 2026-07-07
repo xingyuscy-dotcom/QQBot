@@ -5,6 +5,8 @@ from fastapi.staticfiles import StaticFiles
 
 from .admin_api import router as admin_api_router
 from .db import init_db, log_event
+from .hot_store import init_hot_db
+from .knowledge_store import init_knowledge_db
 from .onebot import router as onebot_router
 from .paths import STATIC_DIR
 from .settings import ensure_local_config
@@ -14,6 +16,14 @@ from .web import router as web_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    try:
+        init_knowledge_db()
+    except Exception as exc:
+        log_event("warning", "knowledge", "knowledge db init failed", repr(exc)[:800])
+    try:
+        init_hot_db()
+    except Exception as exc:
+        log_event("warning", "hot", "hot db init failed", repr(exc)[:800])
     ensure_local_config()
     log_event("info", "system", "QQbot_v2 started")
     yield

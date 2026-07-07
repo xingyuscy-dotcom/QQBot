@@ -1,6 +1,11 @@
 import json
+import re
+import subprocess
+import sys
+import threading
+import time
 from zipfile import BadZipFile
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -17,13 +22,22 @@ from .db import (
     update_conversation_persona,
 )
 from .health_check import collect_health, test_model_connection
+from .hot_store import format_hot_items_for_debug, hot_stats
+from .knowledge_store import knowledge_stats, search_knowledge
 from .memory_store import load_memory, replace_manager_memory, reset_pending_message_count
-from .paths import BACKUPS_DIR, COMMANDS_PATH, DB_PATH, LOGS_DIR
+from .paths import BACKUPS_DIR, COMMANDS_PATH, DB_PATH, HOT_DB_PATH, KNOWLEDGE_DB_PATH, LOGS_DIR, PROJECT_ROOT
 from .prompts import DEFAULT_GLOBAL_SYSTEM_PROMPT
 from .settings import get_settings, set_setting
 
 
 router = APIRouter(prefix="/api")
+KNOWLEDGE_UPDATE_LOCK = threading.Lock()
+KNOWLEDGE_UPDATE_TASK: dict = {
+    "running": False,
+    "status": "idle",
+    "progress": 0,
+    "output": [],
+}
 
 
 class ConversationEnabledPayload(BaseModel):
@@ -54,6 +68,10 @@ class AppSettingsPayload(BaseModel):
     bot_global_system_prompt: str
     bot_manager_qqs: str = ""
     bot_memory_batch_size: str = "40"
+    knowledge_enabled: str = "1"
+    knowledge_sensitivity: str = "medium"
+    knowledge_max_items: str = "5"
+    knowledge_force_prefixes: str = "查知识库,知识库"
 
 
 class ConversationPersonaPayload(BaseModel):
@@ -74,6 +92,17 @@ class BackupRestorePayload(BaseModel):
 
 class CommandLibraryPayload(BaseModel):
     content: str
+
+
+class KnowledgeSearchPayload(BaseModel):
+    query: str = ""
+    limit: int = 10
+
+
+class KnowledgeUpdatePayload(BaseModel):
+    date_from: str = "2025-01-01"
+    date_to: str = ""
+    sources: str = "current,game,esports,anime,wikidata,daily,holidays,onthisday,hot"
 
 
 @router.get("/status")
@@ -204,6 +233,10 @@ def read_settings() -> dict:
         ) or DEFAULT_GLOBAL_SYSTEM_PROMPT,
         "bot_manager_qqs": settings.get("bot.manager_qqs", ""),
         "bot_memory_batch_size": settings.get("bot.memory_batch_size", "40"),
+        "knowledge_enabled": settings.get("knowledge.enabled", "1"),
+        "knowledge_sensitivity": settings.get("knowledge.sensitivity", "medium"),
+        "knowledge_max_items": settings.get("knowledge.max_items", "5"),
+        "knowledge_force_prefixes": settings.get("knowledge.force_prefixes", "查知识库,知识库"),
         "api_key_saved": bool(settings.get("llm.api_key", "").strip()),
     }
 
@@ -218,6 +251,10 @@ def update_settings(payload: AppSettingsPayload) -> dict:
         "bot.global_system_prompt": payload.bot_global_system_prompt.strip(),
         "bot.manager_qqs": payload.bot_manager_qqs.strip(),
         "bot.memory_batch_size": payload.bot_memory_batch_size.strip() or "40",
+        "knowledge.enabled": "1" if payload.knowledge_enabled.strip() == "1" else "0",
+        "knowledge.sensitivity": payload.knowledge_sensitivity.strip() or "medium",
+        "knowledge.max_items": payload.knowledge_max_items.strip() or "5",
+        "knowledge.force_prefixes": payload.knowledge_force_prefixes.strip() or "查知识库,知识库",
     }
     if not items["llm.base_url"]:
         raise HTTPException(status_code=400, detail="llm_base_url is required")
@@ -253,6 +290,247 @@ def read_commands() -> dict:
         "items": items,
         "content": json.dumps(items, ensure_ascii=False, indent=2),
     }
+
+
+@router.get("/knowledge")
+def read_knowledge() -> dict:
+    stats = knowledge_stats()
+    return {
+        "ok": True,
+        "path": str(KNOWLEDGE_DB_PATH),
+        "hot_path": str(HOT_DB_PATH),
+        "system_time": datetime.now().isoformat(timespec="seconds"),
+        "stats": stats,
+        "hot_stats": hot_stats(),
+        "update_task": knowledge_update_snapshot(),
+    }
+
+
+@router.post("/knowledge/search")
+def search_knowledge_api(payload: KnowledgeSearchPayload) -> dict:
+    query = payload.query.strip()
+    if not query:
+        return {"ok": True, "items": []}
+    return {
+        "ok": True,
+        "items": search_knowledge(query, limit=payload.limit),
+    }
+
+
+@router.post("/knowledge/update")
+def update_knowledge_api(payload: KnowledgeUpdatePayload) -> dict:
+    date_from = payload.date_from.strip() or "2025-01-01"
+    date_to = payload.date_to.strip() or date.today().isoformat()
+    sources = normalize_knowledge_sources(payload.sources)
+    try:
+        total_steps = count_knowledge_steps(date_from, date_to, sources)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日期格式不正确，请使用 YYYY-MM-DD。") from exc
+
+    script = PROJECT_ROOT / "scripts" / "update_knowledge.py"
+    command = [sys.executable, str(script), "--from", date_from]
+    command.extend(["--to", date_to])
+    command.extend(["--sources", ",".join(sources)])
+
+    with KNOWLEDGE_UPDATE_LOCK:
+        if KNOWLEDGE_UPDATE_TASK.get("running"):
+            return {"ok": True, "already_running": True, "task": knowledge_update_snapshot_locked()}
+
+        stats = knowledge_stats()
+        KNOWLEDGE_UPDATE_TASK.clear()
+        KNOWLEDGE_UPDATE_TASK.update(
+            {
+                "running": True,
+                "status": "running",
+                "progress": 0,
+                "completed_steps": 0,
+                "total_steps": total_steps,
+                "sources": sources,
+                "source_ratio": "中国 70% / 国际 30%",
+                "eta_seconds": None,
+                "date_from": date_from,
+                "date_to": date_to,
+                "system_time": datetime.now().isoformat(timespec="seconds"),
+                "latest_data_date_before": stats.get("latest_date"),
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "finished_at": None,
+                "output": [],
+                "error": "",
+            }
+        )
+
+    thread = threading.Thread(target=run_knowledge_update_task, args=(command,), daemon=True)
+    thread.start()
+    log_event("info", "knowledge", "knowledge update started", f"{date_from} to {date_to}, sources={','.join(sources)}")
+    return {
+        "ok": True,
+        "started": True,
+        "task": knowledge_update_snapshot(),
+    }
+
+
+@router.get("/knowledge/update-status")
+def knowledge_update_status() -> dict:
+    return {
+        "ok": True,
+        "task": knowledge_update_snapshot(),
+        "stats": knowledge_stats(),
+        "hot_stats": hot_stats(),
+        "system_time": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def run_knowledge_update_task(command: list[str]) -> None:
+    started = time.monotonic()
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=PROJECT_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        assert process.stdout is not None
+        for line in process.stdout:
+            append_knowledge_update_output(line.rstrip(), started)
+
+        return_code = process.wait()
+        with KNOWLEDGE_UPDATE_LOCK:
+            KNOWLEDGE_UPDATE_TASK["running"] = False
+            KNOWLEDGE_UPDATE_TASK["finished_at"] = datetime.now().isoformat(timespec="seconds")
+            if return_code == 0:
+                KNOWLEDGE_UPDATE_TASK["status"] = "done"
+                KNOWLEDGE_UPDATE_TASK["progress"] = 100
+                KNOWLEDGE_UPDATE_TASK["eta_seconds"] = 0
+                KNOWLEDGE_UPDATE_TASK["latest_data_date_after"] = knowledge_stats().get("latest_date")
+                KNOWLEDGE_UPDATE_TASK["latest_hot_data_date_after"] = hot_stats().get("latest_date")
+                log_event("info", "knowledge", "knowledge update finished", "\n".join(KNOWLEDGE_UPDATE_TASK["output"][-10:])[:800])
+            else:
+                KNOWLEDGE_UPDATE_TASK["status"] = "error"
+                KNOWLEDGE_UPDATE_TASK["error"] = f"脚本退出码：{return_code}"
+                log_event("error", "knowledge", "knowledge update failed", KNOWLEDGE_UPDATE_TASK["error"])
+    except Exception as exc:
+        with KNOWLEDGE_UPDATE_LOCK:
+            KNOWLEDGE_UPDATE_TASK["running"] = False
+            KNOWLEDGE_UPDATE_TASK["status"] = "error"
+            KNOWLEDGE_UPDATE_TASK["error"] = repr(exc)[:800]
+            KNOWLEDGE_UPDATE_TASK["finished_at"] = datetime.now().isoformat(timespec="seconds")
+        log_event("error", "knowledge", "knowledge update failed", repr(exc)[:800])
+
+
+def append_knowledge_update_output(line: str, started: float) -> None:
+    with KNOWLEDGE_UPDATE_LOCK:
+        if line:
+            output = KNOWLEDGE_UPDATE_TASK.setdefault("output", [])
+            output.append(line)
+            KNOWLEDGE_UPDATE_TASK["output"] = output[-80:]
+
+        if is_knowledge_progress_line(line):
+            total = max(1, int(KNOWLEDGE_UPDATE_TASK.get("total_steps") or 1))
+            completed = min(total, int(KNOWLEDGE_UPDATE_TASK.get("completed_steps") or 0) + 1)
+            elapsed = max(1, time.monotonic() - started)
+            KNOWLEDGE_UPDATE_TASK["completed_steps"] = completed
+            KNOWLEDGE_UPDATE_TASK["progress"] = min(99, int(completed * 100 / total))
+            if completed > 0 and completed < total:
+                KNOWLEDGE_UPDATE_TASK["eta_seconds"] = int((elapsed / completed) * (total - completed))
+            else:
+                KNOWLEDGE_UPDATE_TASK["eta_seconds"] = 0
+
+
+def knowledge_update_snapshot() -> dict:
+    with KNOWLEDGE_UPDATE_LOCK:
+        return knowledge_update_snapshot_locked()
+
+
+def knowledge_update_snapshot_locked() -> dict:
+    snapshot = dict(KNOWLEDGE_UPDATE_TASK)
+    snapshot["output"] = list(KNOWLEDGE_UPDATE_TASK.get("output") or [])
+    return snapshot
+
+
+def count_months(date_from: str, date_to: str) -> int:
+    start = date.fromisoformat(date_from)
+    end = date.fromisoformat(date_to)
+    if end < start:
+        raise ValueError("date_to must be after date_from")
+    return max(1, (end.year - start.year) * 12 + end.month - start.month + 1)
+
+
+def count_years(date_from: str, date_to: str) -> int:
+    start = date.fromisoformat(date_from)
+    end = date.fromisoformat(date_to)
+    if end < start:
+        raise ValueError("date_to must be after date_from")
+    return max(1, end.year - start.year + 1)
+
+
+def normalize_knowledge_sources(value: str) -> list[str]:
+    default = ["current", "game", "esports", "anime", "wikidata", "daily", "holidays", "onthisday", "hot"]
+    allowed = (*default, "gdelt")
+    aliases = {
+        "综合": "current",
+        "新闻": "current",
+        "游戏": "game",
+        "电竞": "esports",
+        "动漫": "anime",
+        "动画": "anime",
+        "事件": "gdelt",
+        "结构化": "wikidata",
+        "日常": "daily",
+        "常识": "daily",
+        "节假日": "holidays",
+        "节日": "holidays",
+        "历史上的今天": "onthisday",
+        "历史": "onthisday",
+        "热点": "hot",
+        "热搜": "hot",
+        "热门": "hot",
+    }
+    result = []
+    for raw in str(value or "").split(","):
+        item = aliases.get(raw.strip(), raw.strip().lower())
+        if item in allowed and item not in result:
+            result.append(item)
+    return result or default
+
+
+def count_knowledge_steps(date_from: str, date_to: str, sources: list[str]) -> int:
+    month_count = count_months(date_from, date_to)
+    total = month_count if "current" in sources else 0
+    feed_counts = {
+        "game": 9,
+        "esports": 5,
+        "anime": 5,
+    }
+    total += sum(feed_counts.get(source, 0) for source in sources)
+    if "gdelt" in sources:
+        total += 2
+    if "wikidata" in sources:
+        total += 1
+    if "daily" in sources:
+        total += 37
+    if "holidays" in sources:
+        total += count_years(date_from, date_to) * 4
+    if "onthisday" in sources:
+        total += 7
+    if "hot" in sources:
+        total += 5
+    return max(1, total)
+
+
+def is_knowledge_progress_line(line: str) -> bool:
+    return bool(
+        re.match(r"^current \d{4}-\d{2}:", line)
+        or re.match(r"^(游戏|电竞|动漫)/", line)
+        or re.match(r"^gdelt (cn|global):", line)
+        or re.match(r"^wikidata:", line)
+        or re.match(r"^daily ", line)
+        or re.match(r"^holidays ", line)
+        or re.match(r"^onthisday ", line)
+        or re.match(r"^hot ", line)
+    )
 
 
 @router.patch("/commands")
@@ -556,13 +834,24 @@ def conversation_detail(bot_qq: str, scope_type: str, scope_id: str) -> dict:
 
 @router.get("/conversations/{bot_qq}/{scope_type}/{scope_id}/debug")
 def conversation_debug(bot_qq: str, scope_type: str, scope_id: str) -> dict:
-    from .llm_client import build_messages
+    from .knowledge_store import format_knowledge_items_for_debug
+    from .llm_client import build_messages, collect_hot_items, collect_knowledge_items, load_readonly_context, parse_context_limit
 
     config = require_conversation_config(bot_qq, scope_type, scope_id)
     settings = get_settings()
+    context_items = load_readonly_context(
+        bot_qq,
+        scope_type,
+        scope_id,
+        parse_context_limit(config.get("context_message_limit")),
+    )
+    knowledge_items = collect_knowledge_items(settings, "", context_items)
+    hot_items = collect_hot_items(settings, "", context_items)
     return {
         "recent_messages": get_recent_conversation_messages(bot_qq, scope_type, scope_id, limit=20),
         "prompt_messages": build_messages(bot_qq, scope_type, scope_id, config, settings),
+        "knowledge_preview": format_knowledge_items_for_debug(knowledge_items),
+        "hot_preview": format_hot_items_for_debug(hot_items),
     }
 
 
@@ -573,7 +862,8 @@ def conversation_debug_reply(
     scope_id: str,
     payload: ConversationDebugPayload,
 ) -> dict:
-    from .llm_client import LLMError, build_messages, chat_completion
+    from .knowledge_store import format_knowledge_items_for_debug
+    from .llm_client import LLMError, build_messages, chat_completion, collect_hot_items, collect_knowledge_items, load_readonly_context, parse_context_limit
 
     config = require_conversation_config(bot_qq, scope_type, scope_id)
     test_text = payload.test_text.strip()
@@ -581,6 +871,15 @@ def conversation_debug_reply(
         raise HTTPException(status_code=400, detail="请输入测试消息。")
 
     settings = get_settings()
+    context_items = load_readonly_context(
+        bot_qq,
+        scope_type,
+        scope_id,
+        parse_context_limit(config.get("context_message_limit")),
+        True,
+    )
+    knowledge_items = collect_knowledge_items(settings, test_text, context_items)
+    hot_items = collect_hot_items(settings, test_text, context_items)
     messages = build_messages(bot_qq, scope_type, scope_id, config, settings, f"用户调试: {test_text}")
 
     try:
@@ -590,7 +889,13 @@ def conversation_debug_reply(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     log_event("info", f"debug:{scope_type}:{bot_qq}:{scope_id}", "debug reply generated", test_text[:500])
-    return {"ok": True, "reply": reply, "prompt_messages": messages}
+    return {
+        "ok": True,
+        "reply": reply,
+        "prompt_messages": messages,
+        "knowledge_preview": format_knowledge_items_for_debug(knowledge_items),
+        "hot_preview": format_hot_items_for_debug(hot_items),
+    }
 
 
 @router.patch("/conversations/{bot_qq}/{scope_type}/{scope_id}/enabled")

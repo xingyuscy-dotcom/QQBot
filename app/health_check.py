@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .db import connect, latest_bot_status, log_event
-from .paths import BACKUPS_DIR, DATA_DIR, DB_PATH, LOGS_DIR, MEMORIES_DIR
+from .paths import BACKUPS_DIR, DATA_DIR, DB_PATH, HOT_DB_PATH, KNOWLEDGE_DB_PATH, LOGS_DIR, MEMORIES_DIR
 from .settings import get_settings
 
 
@@ -26,6 +26,14 @@ def collect_health() -> dict[str, Any]:
             "ok": database_ok,
             "path": str(DB_PATH),
             "detail": database_detail,
+        },
+        "knowledge_database": {
+            "path": str(KNOWLEDGE_DB_PATH),
+            "exists": KNOWLEDGE_DB_PATH.exists(),
+        },
+        "hot_database": {
+            "path": str(HOT_DB_PATH),
+            "exists": HOT_DB_PATH.exists(),
         },
         "napcat": _check_napcat(),
         "onebot": _check_onebot_port(settings),

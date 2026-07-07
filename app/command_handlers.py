@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Callable
 
 from .backup_store import create_backup, list_backups
@@ -160,6 +161,56 @@ def command_help(context, args: str) -> str:
     return "可用指令：\n" + "\n".join(lines)
 
 
+def knowledge_query(context, args: str) -> str:
+    query = args.strip()
+    if not query:
+        return "用法：/知识库 内容"
+
+    from .knowledge_store import search_knowledge
+    from .llm_client import LLMError, MINIMUM_REPLY, generate_reply
+
+    if not search_knowledge(query, limit=1):
+        return MINIMUM_REPLY
+
+    config = _get_conversation_config(context) or {}
+    if not config:
+        return "当前会话还没有配置记录。"
+
+    try:
+        return generate_reply(
+            context.bot_qq,
+            context.scope_type,
+            context.scope_id,
+            config,
+            f"/知识库 {query}",
+            True,
+        )
+    except LLMError as exc:
+        log_event("error", f"knowledge:{context.scope_type}:{context.bot_qq}:{context.scope_id}", "knowledge reply failed", str(exc)[:800])
+        return f"知识库回答失败：{exc}"
+    except Exception as exc:
+        log_event("error", f"knowledge:{context.scope_type}:{context.bot_qq}:{context.scope_id}", "knowledge reply failed", repr(exc)[:800])
+        return "知识库回答失败，详情看后台日志。"
+
+
+def hot_topics(context, args: str) -> str:
+    from .hot_store import list_hot_topics, normalize_hot_source, search_hot_topics
+
+    query = args.strip()
+    source = normalize_hot_source(query)
+    if query and not source:
+        items = search_hot_topics(query, limit=10)
+    else:
+        items = list_hot_topics(source=source, limit=10)
+    if not items:
+        return "当前本地还没有热点数据。可以先在后台知识库里勾选“热点”并手动更新。"
+
+    lines = ["当前热点（热榜只代表抓取时的热度，不等于事实结论）："]
+    for item in items[:10]:
+        lines.append(format_hot_topic_line(item))
+    return "\n".join(lines)
+
+
 def backup_create(context, args: str) -> str:
     try:
         backup = create_backup()
@@ -182,6 +233,19 @@ def backup_list(context, args: str) -> str:
 
 def health_check(context, args: str) -> str:
     return format_health_report(collect_health())
+
+
+def format_hot_topic_line(item: dict) -> str:
+    title = str(item.get("title") or "").strip()
+    summary = str(item.get("summary") or "").strip()
+    category = str(item.get("category") or "").strip()
+    source = category.split("/")[1] if "/" in category else "热点"
+    rank_match = re.search(r"第(\d+)名[:：](.+)$", title)
+    rank = rank_match.group(1) if rank_match else "-"
+    topic = rank_match.group(2).strip() if rank_match else title
+    time_match = re.search(r"抓取时间[:：]([^；;]+)", summary)
+    fetched_time = time_match.group(1).strip() if time_match else str(item.get("fetched_at") or item.get("event_date") or "-")
+    return f"[{fetched_time} {source}] #{rank} {topic}"
 
 
 def at_test(context, args: str):
@@ -503,6 +567,8 @@ HANDLERS: dict[str, Callable] = {
     "learning_clear_pending": learning_clear_pending,
     "learning_help": learning_help,
     "command_help": command_help,
+    "knowledge_query": knowledge_query,
+    "hot_topics": hot_topics,
     "backup_create": backup_create,
     "backup_list": backup_list,
     "health_check": health_check,

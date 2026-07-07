@@ -17,7 +17,7 @@ from .db import (
     save_conversation_message,
     upsert_bot_status,
 )
-from .llm_client import LLMError, generate_reply_result
+from .llm_client import LLMError, MINIMUM_REPLY, generate_reply_result
 from .memory_learner import update_learned_memory_if_needed
 from .memory_store import bump_pending_message_count
 
@@ -138,9 +138,13 @@ async def handle_group_message(websocket: WebSocket, event: dict, bot_qq: str, t
         )
     except LLMError as exc:
         log_event("error", f"group:{bot_qq}:{group_id}", "llm reply failed", str(exc))
+        await send_group_message(websocket, group_id, MINIMUM_REPLY)
+        save_conversation_message(bot_qq, "group", group_id, bot_qq, None, MINIMUM_REPLY, is_bot=True)
         return
     except Exception as exc:
         log_event("error", f"group:{bot_qq}:{group_id}", "ai reply failed", repr(exc))
+        await send_group_message(websocket, group_id, MINIMUM_REPLY)
+        save_conversation_message(bot_qq, "group", group_id, bot_qq, None, MINIMUM_REPLY, is_bot=True)
         return
 
     reply = result.reply
@@ -201,9 +205,13 @@ async def handle_private_message(websocket: WebSocket, event: dict, bot_qq: str,
         )
     except LLMError as exc:
         log_event("error", f"private:{bot_qq}:{user_id}", "llm reply failed", str(exc))
+        await send_private_message(websocket, user_id, MINIMUM_REPLY)
+        save_conversation_message(bot_qq, "private", user_id, bot_qq, None, MINIMUM_REPLY, is_bot=True)
         return
     except Exception as exc:
         log_event("error", f"private:{bot_qq}:{user_id}", "ai reply failed", repr(exc))
+        await send_private_message(websocket, user_id, MINIMUM_REPLY)
+        save_conversation_message(bot_qq, "private", user_id, bot_qq, None, MINIMUM_REPLY, is_bot=True)
         return
 
     reply = result.reply
