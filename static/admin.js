@@ -36,6 +36,12 @@ function memoryWeightLabel(value) {
   return Number.isFinite(weight) ? weight.toFixed(1) : "0.4";
 }
 
+function contextLimitLabel(value) {
+  const limit = Number(value ?? 8);
+  if (!Number.isFinite(limit)) return "8 条";
+  return limit > 0 ? `${limit} 条` : "关闭";
+}
+
 function responseModeLabel(item) {
   if (item.scope_type === "private") {
     return "全部消息";
@@ -553,6 +559,7 @@ async function refreshConversations() {
             <div class="subtle">${learningLabel(item.learning_enabled)}</div>
             <div class="subtle">${learningBatchLabel(item.learning_batch_size)}</div>
             <div class="subtle">记忆影响 ${memoryWeightLabel(item.learned_memory_weight)}</div>
+            <div class="subtle">上下文 ${contextLimitLabel(item.context_message_limit)}</div>
           </td>
           <td>
             ${
@@ -893,6 +900,7 @@ async function openPersonaEditor(button) {
   document.querySelector("#managerMemoryText").value = managerMemory.join("\n");
   document.querySelector("#learningBatchSize").value = text(data.conversation?.learning_batch_size, "0");
   document.querySelector("#learnedMemoryWeight").value = text(data.conversation?.learned_memory_weight, "0.4");
+  document.querySelector("#contextMessageLimit").value = text(data.conversation?.context_message_limit, "8");
   document.querySelector("#learnedMemoryPreview").textContent = formatLearnedMemory(data.memory);
   document.querySelector("#learningState").textContent = learningEnabled ? "已开启" : "已关闭";
   document.querySelector("#learningState").dataset.learningEnabled = learningEnabled ? "1" : "0";
@@ -910,6 +918,7 @@ function closePersonaEditor() {
   document.querySelector("#debugReplyPreview").textContent = "";
   document.querySelector("#learningBatchSize").value = "0";
   document.querySelector("#learnedMemoryWeight").value = "0.4";
+  document.querySelector("#contextMessageLimit").value = "8";
 }
 
 function formatLearnedMemory(memory) {
@@ -939,6 +948,10 @@ async function savePersonaEditor() {
   const learnedMemoryWeight = Number.isFinite(rawMemoryWeight)
     ? Math.min(1, Math.max(0, rawMemoryWeight))
     : 0.4;
+  const contextMessageLimit = Math.min(
+    30,
+    Math.max(0, Number.parseInt(document.querySelector("#contextMessageLimit").value || "8", 10) || 0)
+  );
   if (learningBatchSize > 0 && learningBatchSize < 10) {
     notice.textContent = "学习批量至少 10 条；填 0 表示使用全局";
     return;
@@ -969,6 +982,7 @@ async function savePersonaEditor() {
         learning_enabled: learningEnabled,
         learning_batch_size: learningBatchSize,
         learned_memory_weight: learnedMemoryWeight,
+        context_message_limit: contextMessageLimit,
       }),
     });
     if (!learningResponse.ok) throw new Error(await learningResponse.text());
@@ -1206,6 +1220,7 @@ document.querySelector("#backupList").addEventListener("click", (event) => {
 });
 document.querySelector("#settingsForm").addEventListener("submit", saveSettings);
 document.querySelector("#closePersona").addEventListener("click", closePersonaEditor);
+document.querySelector("#closePersonaOutside").addEventListener("click", closePersonaEditor);
 document.querySelector("#cancelPersona").addEventListener("click", closePersonaEditor);
 document.querySelector("#savePersona").addEventListener("click", savePersonaEditor);
 document.querySelector("#updateLearnedMemory").addEventListener("click", updateLearnedMemory);

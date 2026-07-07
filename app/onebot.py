@@ -127,7 +127,15 @@ async def handle_group_message(websocket: WebSocket, event: dict, bot_qq: str, t
         return
 
     try:
-        result = await asyncio.to_thread(generate_reply_result, bot_qq, "group", group_id, config, clean_text)
+        result = await asyncio.to_thread(
+            generate_reply_result,
+            bot_qq,
+            "group",
+            group_id,
+            config,
+            clean_text,
+            True,
+        )
     except LLMError as exc:
         log_event("error", f"group:{bot_qq}:{group_id}", "llm reply failed", str(exc))
         return
@@ -182,7 +190,15 @@ async def handle_private_message(websocket: WebSocket, event: dict, bot_qq: str,
         return
 
     try:
-        result = await asyncio.to_thread(generate_reply_result, bot_qq, "private", user_id, config, text)
+        result = await asyncio.to_thread(
+            generate_reply_result,
+            bot_qq,
+            "private",
+            user_id,
+            config,
+            text,
+            True,
+        )
     except LLMError as exc:
         log_event("error", f"private:{bot_qq}:{user_id}", "llm reply failed", str(exc))
         return

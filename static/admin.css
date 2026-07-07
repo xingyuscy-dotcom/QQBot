@@ -381,6 +381,13 @@ th {
   z-index: 10;
 }
 
+.dialog-close-button {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 11;
+}
+
 .dialog-backdrop[hidden] {
   display: none;
 }

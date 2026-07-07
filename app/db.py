@@ -51,6 +51,7 @@ def init_db(db_path: Path = DB_PATH) -> None:
               learning_enabled INTEGER NOT NULL DEFAULT 1,
               learning_batch_size INTEGER NOT NULL DEFAULT 0,
               learned_memory_weight REAL NOT NULL DEFAULT 0.4,
+              context_message_limit INTEGER NOT NULL DEFAULT 8,
               persona TEXT NOT NULL DEFAULT '',
               reply_cooldown_seconds INTEGER NOT NULL DEFAULT 0,
               reply_probability REAL NOT NULL DEFAULT 1,
@@ -196,6 +197,7 @@ def migrate_conversation_rate_fields(conn: sqlite3.Connection) -> None:
         "hourly_reply_limit": "ALTER TABLE conversation_configs ADD COLUMN hourly_reply_limit INTEGER NOT NULL DEFAULT 0",
         "learning_batch_size": "ALTER TABLE conversation_configs ADD COLUMN learning_batch_size INTEGER NOT NULL DEFAULT 0",
         "learned_memory_weight": "ALTER TABLE conversation_configs ADD COLUMN learned_memory_weight REAL NOT NULL DEFAULT 0.4",
+        "context_message_limit": "ALTER TABLE conversation_configs ADD COLUMN context_message_limit INTEGER NOT NULL DEFAULT 8",
     }
     for column, sql in migrations.items():
         if column not in columns:
@@ -212,6 +214,13 @@ def migrate_conversation_rate_fields(conn: sqlite3.Connection) -> None:
         UPDATE conversation_configs
         SET learned_memory_weight = 0.4
         WHERE learned_memory_weight IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE conversation_configs
+        SET context_message_limit = 8
+        WHERE context_message_limit IS NULL
         """
     )
 
@@ -364,8 +373,9 @@ def ensure_conversation_config(
             """
             INSERT INTO conversation_configs
               (bot_qq, scope_type, scope_id, display_name, enabled, response_mode,
-               trigger_prefix, learning_enabled, learning_batch_size, learned_memory_weight, persona, updated_at)
-            VALUES (?, ?, ?, ?, 0, ?, ?, 1, 0, 0.4, '', ?)
+               trigger_prefix, learning_enabled, learning_batch_size, learned_memory_weight,
+               context_message_limit, persona, updated_at)
+            VALUES (?, ?, ?, ?, 0, ?, ?, 1, 0, 0.4, 8, '', ?)
             ON CONFLICT(bot_qq, scope_type, scope_id) DO UPDATE SET
               display_name = CASE
                 WHEN excluded.display_name != '' THEN excluded.display_name
@@ -403,6 +413,7 @@ def get_conversation_config(
               learning_enabled,
               learning_batch_size,
               learned_memory_weight,
+              context_message_limit,
               persona,
               reply_cooldown_seconds,
               reply_probability,
@@ -526,6 +537,7 @@ def update_conversation_learning(
     learning_enabled: bool | None = None,
     learning_batch_size: int | None = None,
     learned_memory_weight: float | None = None,
+    context_message_limit: int | None = None,
 ) -> bool:
     updates = []
     values: list[Any] = []
@@ -538,6 +550,9 @@ def update_conversation_learning(
     if learned_memory_weight is not None:
         updates.append("learned_memory_weight = ?")
         values.append(min(1, max(0, float(learned_memory_weight))))
+    if context_message_limit is not None:
+        updates.append("context_message_limit = ?")
+        values.append(min(30, max(0, int(context_message_limit))))
     if not updates:
         return False
 

@@ -34,6 +34,7 @@ class ConversationLearningPayload(BaseModel):
     learning_enabled: bool
     learning_batch_size: int | None = None
     learned_memory_weight: float | None = None
+    context_message_limit: int | None = None
 
 
 class ConversationReplyConfigPayload(BaseModel):
@@ -336,6 +337,7 @@ def conversations() -> dict:
               c.learning_enabled,
               c.learning_batch_size,
               c.learned_memory_weight,
+              c.context_message_limit,
               c.reply_cooldown_seconds,
               c.reply_probability,
               c.hourly_reply_limit,
@@ -532,6 +534,7 @@ def conversation_detail(bot_qq: str, scope_type: str, scope_id: str) -> dict:
               learning_enabled,
               learning_batch_size,
               learned_memory_weight,
+              context_message_limit,
               persona,
               reply_cooldown_seconds,
               reply_probability,
@@ -636,6 +639,10 @@ def set_conversation_learning(
     if payload.learned_memory_weight is not None:
         memory_weight = min(1, max(0, float(payload.learned_memory_weight)))
 
+    context_limit = None
+    if payload.context_message_limit is not None:
+        context_limit = min(30, max(0, int(payload.context_message_limit)))
+
     ok = update_conversation_learning(
         bot_qq,
         scope_type,
@@ -643,6 +650,7 @@ def set_conversation_learning(
         payload.learning_enabled,
         batch_size,
         memory_weight,
+        context_limit,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="conversation not found")
@@ -650,7 +658,7 @@ def set_conversation_learning(
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT learning_enabled, learning_batch_size, learned_memory_weight
+            SELECT learning_enabled, learning_batch_size, learned_memory_weight, context_message_limit
             FROM conversation_configs
             WHERE bot_qq = ? AND scope_type = ? AND scope_id = ?
             """,
