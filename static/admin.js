@@ -31,6 +31,11 @@ function learningBatchLabel(value) {
   return batchSize > 0 ? `批量 ${batchSize}` : "批量 全局";
 }
 
+function memoryWeightLabel(value) {
+  const weight = Number(value ?? 0.4);
+  return Number.isFinite(weight) ? weight.toFixed(1) : "0.4";
+}
+
 function responseModeLabel(item) {
   if (item.scope_type === "private") {
     return "全部消息";
@@ -547,6 +552,7 @@ async function refreshConversations() {
             <div>${enabledLabel(item.enabled)}</div>
             <div class="subtle">${learningLabel(item.learning_enabled)}</div>
             <div class="subtle">${learningBatchLabel(item.learning_batch_size)}</div>
+            <div class="subtle">记忆影响 ${memoryWeightLabel(item.learned_memory_weight)}</div>
           </td>
           <td>
             ${
@@ -886,6 +892,7 @@ async function openPersonaEditor(button) {
   document.querySelector("#personaText").value = text(data.conversation?.persona, "");
   document.querySelector("#managerMemoryText").value = managerMemory.join("\n");
   document.querySelector("#learningBatchSize").value = text(data.conversation?.learning_batch_size, "0");
+  document.querySelector("#learnedMemoryWeight").value = text(data.conversation?.learned_memory_weight, "0.4");
   document.querySelector("#learnedMemoryPreview").textContent = formatLearnedMemory(data.memory);
   document.querySelector("#learningState").textContent = learningEnabled ? "已开启" : "已关闭";
   document.querySelector("#learningState").dataset.learningEnabled = learningEnabled ? "1" : "0";
@@ -902,6 +909,7 @@ function closePersonaEditor() {
   document.querySelector("#debugTestText").value = "";
   document.querySelector("#debugReplyPreview").textContent = "";
   document.querySelector("#learningBatchSize").value = "0";
+  document.querySelector("#learnedMemoryWeight").value = "0.4";
 }
 
 function formatLearnedMemory(memory) {
@@ -927,6 +935,10 @@ async function savePersonaEditor() {
     0,
     Number.parseInt(document.querySelector("#learningBatchSize").value || "0", 10) || 0
   );
+  const rawMemoryWeight = Number.parseFloat(document.querySelector("#learnedMemoryWeight").value || "0.4");
+  const learnedMemoryWeight = Number.isFinite(rawMemoryWeight)
+    ? Math.min(1, Math.max(0, rawMemoryWeight))
+    : 0.4;
   if (learningBatchSize > 0 && learningBatchSize < 10) {
     notice.textContent = "学习批量至少 10 条；填 0 表示使用全局";
     return;
@@ -956,6 +968,7 @@ async function savePersonaEditor() {
       body: JSON.stringify({
         learning_enabled: learningEnabled,
         learning_batch_size: learningBatchSize,
+        learned_memory_weight: learnedMemoryWeight,
       }),
     });
     if (!learningResponse.ok) throw new Error(await learningResponse.text());

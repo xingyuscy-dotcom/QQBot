@@ -33,6 +33,7 @@ class ConversationEnabledPayload(BaseModel):
 class ConversationLearningPayload(BaseModel):
     learning_enabled: bool
     learning_batch_size: int | None = None
+    learned_memory_weight: float | None = None
 
 
 class ConversationReplyConfigPayload(BaseModel):
@@ -334,6 +335,7 @@ def conversations() -> dict:
               c.trigger_prefix,
               c.learning_enabled,
               c.learning_batch_size,
+              c.learned_memory_weight,
               c.reply_cooldown_seconds,
               c.reply_probability,
               c.hourly_reply_limit,
@@ -529,6 +531,7 @@ def conversation_detail(bot_qq: str, scope_type: str, scope_id: str) -> dict:
               display_name,
               learning_enabled,
               learning_batch_size,
+              learned_memory_weight,
               persona,
               reply_cooldown_seconds,
               reply_probability,
@@ -575,8 +578,7 @@ def conversation_debug_reply(
         raise HTTPException(status_code=400, detail="请输入测试消息。")
 
     settings = get_settings()
-    messages = build_messages(bot_qq, scope_type, scope_id, config, settings)
-    messages.append({"role": "user", "content": f"用户调试: {test_text}"})
+    messages = build_messages(bot_qq, scope_type, scope_id, config, settings, f"用户调试: {test_text}")
 
     try:
         reply = chat_completion(settings, messages)
@@ -630,14 +632,25 @@ def set_conversation_learning(
         if 0 < batch_size < 10:
             raise HTTPException(status_code=400, detail="learning_batch_size must be 0 or at least 10")
 
-    ok = update_conversation_learning(bot_qq, scope_type, scope_id, payload.learning_enabled, batch_size)
+    memory_weight = None
+    if payload.learned_memory_weight is not None:
+        memory_weight = min(1, max(0, float(payload.learned_memory_weight)))
+
+    ok = update_conversation_learning(
+        bot_qq,
+        scope_type,
+        scope_id,
+        payload.learning_enabled,
+        batch_size,
+        memory_weight,
+    )
     if not ok:
         raise HTTPException(status_code=404, detail="conversation not found")
 
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT learning_enabled, learning_batch_size
+            SELECT learning_enabled, learning_batch_size, learned_memory_weight
             FROM conversation_configs
             WHERE bot_qq = ? AND scope_type = ? AND scope_id = ?
             """,

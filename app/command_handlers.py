@@ -111,13 +111,27 @@ def learning_batch(context, args: str) -> str:
     return f"已设置当前会话学习批量：{batch_size if batch_size > 0 else '使用全局'}。"
 
 
+def learning_weight(context, args: str) -> str:
+    value = args.strip()
+    try:
+        weight = float(value)
+    except ValueError:
+        return "用法：/学习 权重 0.4。范围 0 到 1。"
+
+    if weight < 0 or weight > 1:
+        return "学习记忆影响权重必须在 0 到 1 之间。"
+    if not _set_learned_memory_weight(context, weight):
+        return "当前会话还没有配置记录。"
+    return f"已设置当前会话学习记忆影响权重：{weight:.2f}。"
+
+
 def learning_clear_pending(context, args: str) -> str:
     reset_pending_message_count(context.bot_qq, context.scope_type, context.scope_id)
     return "已清空当前会话待学习消息数。"
 
 
 def learning_help(context, args: str) -> str:
-    return "学习指令：/学习 查看、/学习 更新、/学习 开启、/学习 关闭、/学习 批量 数量、/学习 清空缓存"
+    return "学习指令：/学习 查看、/学习 更新、/学习 开启、/学习 关闭、/学习 批量 数量、/学习 权重 0.4、/学习 清空缓存"
 
 
 def command_help(context, args: str) -> str:
@@ -202,6 +216,7 @@ def conversation_status(context, args: str) -> str:
             f"机器人：{'已启用' if int(config.get('enabled') or 0) == 1 else '已停用'}",
             f"学习：{'已开启' if int(config.get('learning_enabled') or 0) == 1 else '已关闭'}",
             f"学习批量：{_format_learning_batch(config)}",
+            f"学习记忆影响：{float(config.get('learned_memory_weight') or 0.4):.2f}",
             f"回复模式：{_format_reply_mode(config)}",
             f"会话人设：{'已设置' if str(config.get('persona') or '').strip() else '未设置'}",
             f"管理员记忆：{manager_memory_count} 条",
@@ -319,7 +334,7 @@ def _get_conversation_config(context) -> dict | None:
             """
             SELECT bot_qq, scope_type, scope_id, display_name, enabled,
                    response_mode, trigger_prefix, learning_enabled,
-                   learning_batch_size, persona
+                   learning_batch_size, learned_memory_weight, persona
             FROM conversation_configs
             WHERE bot_qq = ? AND scope_type = ? AND scope_id = ?
             """,
@@ -369,6 +384,15 @@ def _set_learning_batch_size(context, batch_size: int) -> bool:
         context.scope_type,
         context.scope_id,
         learning_batch_size=batch_size,
+    )
+
+
+def _set_learned_memory_weight(context, weight: float) -> bool:
+    return update_conversation_learning(
+        context.bot_qq,
+        context.scope_type,
+        context.scope_id,
+        learned_memory_weight=weight,
     )
 
 
@@ -475,6 +499,7 @@ HANDLERS: dict[str, Callable] = {
     "learning_enable": learning_enable,
     "learning_disable": learning_disable,
     "learning_batch": learning_batch,
+    "learning_weight": learning_weight,
     "learning_clear_pending": learning_clear_pending,
     "learning_help": learning_help,
     "command_help": command_help,

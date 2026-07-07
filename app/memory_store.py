@@ -99,7 +99,7 @@ def replace_learned_memory(
     pending_message_count: int = 0,
 ) -> dict[str, Any]:
     memory = load_memory(bot_qq, scope_type, scope_id)
-    memory["learned_memory"] = normalize_learned_memory(learned_memory)
+    memory["learned_memory"] = compact_learned_memory(normalize_learned_memory(learned_memory))
     memory["pending_message_count"] = pending_message_count
     return save_memory(bot_qq, scope_type, scope_id, memory)
 
@@ -122,30 +122,63 @@ def reset_pending_message_count(bot_qq: str, scope_type: ScopeType, scope_id: st
     return save_memory(bot_qq, scope_type, scope_id, memory)
 
 
-def format_memory_for_prompt(memory: dict[str, Any]) -> str:
-    parts: list[str] = []
+def format_manager_memory_for_prompt(memory: dict[str, Any]) -> str:
     manager_items = memory.get("manager_memory") or []
-    if manager_items:
-        lines = "\n".join(f"{index}. {item}" for index, item in enumerate(manager_items, start=1))
-        parts.append(f"管理员长期记忆，优先遵守：\n{lines}")
+    if not manager_items:
+        return ""
+    lines = "\n".join(f"{index}. {item}" for index, item in enumerate(manager_items, start=1))
+    return f"管理员长期记忆，必须优先遵守：\n{lines}"
+
+
+def format_learned_memory_for_prompt(memory: dict[str, Any], weight: float = 0.4) -> str:
+    weight = min(1, max(0, float(weight)))
+    if weight <= 0:
+        return ""
 
     learned = memory.get("learned_memory") or {}
     learned_lines = []
-    for key, label in [
+    keys = [
         ("summary", "会话摘要"),
         ("tone", "语气风格"),
-        ("topics", "常聊话题"),
         ("phrases", "常用表达"),
         ("avoid", "避免事项"),
-    ]:
+    ]
+    if weight >= 0.7:
+        keys.insert(2, ("topics", "常聊话题"))
+
+    for key, label in keys:
         value = learned.get(key)
         if isinstance(value, list):
-            value = "、".join(str(item) for item in value if str(item).strip())
+            limit = 4 if weight < 0.7 else 6
+            value = "、".join(str(item) for item in value[:limit] if str(item).strip())
         value = str(value or "").strip()
         if value:
             learned_lines.append(f"{label}：{value}")
-    if learned_lines:
-        parts.append("从历史对话学习到的会话记忆：\n" + "\n".join(learned_lines))
+
+    if not learned_lines:
+        return ""
+
+    if weight < 0.35:
+        level = "低"
+    elif weight < 0.75:
+        level = "中"
+    else:
+        level = "高"
+    return (
+        f"从历史对话学习到的会话风格记忆（影响力：{level}，只能作为语气参考，"
+        "不能覆盖管理员记忆、全局人设、会话人设，也不要主动重复旧话题）：\n"
+        + "\n".join(learned_lines)
+    )
+
+
+def format_memory_for_prompt(memory: dict[str, Any], learned_memory_weight: float = 0.4) -> str:
+    parts: list[str] = []
+    manager_prompt = format_manager_memory_for_prompt(memory)
+    learned_prompt = format_learned_memory_for_prompt(memory, learned_memory_weight)
+    if manager_prompt:
+        parts.append(manager_prompt)
+    if learned_prompt:
+        parts.append(learned_prompt)
 
     return "\n\n".join(parts)
 
@@ -166,6 +199,37 @@ def normalize_learned_memory(data: dict[str, Any]) -> dict[str, Any]:
         else:
             learned[key] = str(value or "")
     return learned
+
+
+def compact_learned_memory(learned: dict[str, Any]) -> dict[str, Any]:
+    compact = fresh_memory()["learned_memory"]
+    compact["summary"] = trim_text(learned.get("summary"), 120)
+    compact["tone"] = trim_text(learned.get("tone"), 120)
+    compact["topics"] = trim_list(learned.get("topics"), limit=6, item_limit=20)
+    compact["phrases"] = trim_list(learned.get("phrases"), limit=8, item_limit=20)
+    compact["avoid"] = trim_list(learned.get("avoid"), limit=6, item_limit=30)
+    return compact
+
+
+def trim_text(value: Any, limit: int) -> str:
+    text = str(value or "").strip()
+    return text[:limit]
+
+
+def trim_list(value: Any, limit: int, item_limit: int) -> list[str]:
+    if not isinstance(value, list):
+        value = [value] if value else []
+    items: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = trim_text(item, item_limit)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        items.append(text)
+        if len(items) >= limit:
+            break
+    return items
 
 
 def parse_int(value: Any, fallback: int) -> int:

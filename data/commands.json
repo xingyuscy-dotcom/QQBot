@@ -120,6 +120,18 @@
     "handler": "learning_batch"
   },
   {
+    "name": "learning_weight",
+    "trigger": "/学习 权重",
+    "usage": "/学习 权重 0.4",
+    "description": "设置学习记忆对当前会话回复的影响强度，范围 0 到 1",
+    "manager_only": true,
+    "scopes": [
+      "group",
+      "private"
+    ],
+    "handler": "learning_weight"
+  },
+  {
     "name": "learning_clear_pending",
     "trigger": "/学习 清空缓存",
     "usage": "/学习 清空缓存",
