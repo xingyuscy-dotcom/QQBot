@@ -180,30 +180,6 @@ logs/
 backups/
 ```
 
-## GitHub 上传前检查
-
-本项目只需要上传 `QQbot_v2` 目录。
-
-上传前运行：
-
-```powershell
-.\scripts\preflight-upload.ps1
-```
-
-不要上传这些本地文件：
-
-```text
-config.local.json
-.venv/
-data/bot.sqlite3
-data/memories/
-logs/
-backups/
-*.lnk
-```
-
-这些已经写入 `.gitignore`。如果上传前检查失败，先处理提示的问题再提交。
-
 ## 部署到新机器
 
 1. 安装 Python 3.11 或更高版本。
@@ -214,10 +190,3 @@ backups/
 6. 填入 DeepSeek API Key、模型、管理员 QQ。
 7. 在 NapCat 中配置反向 WebSocket：`ws://127.0.0.1:6199/onebot/ws`。
 8. 在 QQ 群或私聊发送测试消息。
-
-## 注意
-
-- `config.local.json` 只保存本机真实配置，不提交。
-- 聊天记录、记忆、日志、备份都只保存在本地，不提交。
-- 群聊和私聊记忆隔离，不同群之间不会串记忆。
-- 命令逻辑在 `data/commands.json` 和 `app/command_handlers.py`，不要塞回全局人设。
