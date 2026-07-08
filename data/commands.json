@@ -171,13 +171,25 @@
     "name": "knowledge_query",
     "trigger": "/知识库",
     "usage": "/知识库 内容",
-    "description": "强制检索本地知识库并回答问题",
-    "manager_only": false,
+    "description": "快速检索本地知识库并直接返回命中条目",
+    "manager_only": true,
     "scopes": [
       "group",
       "private"
     ],
     "handler": "knowledge_query"
+  },
+  {
+    "name": "knowledge_summary_query",
+    "trigger": "/知识库总结",
+    "usage": "/知识库总结 内容",
+    "description": "检索本地知识库后调用大模型整理回答",
+    "manager_only": false,
+    "scopes": [
+      "group",
+      "private"
+    ],
+    "handler": "knowledge_summary_query"
   },
   {
     "name": "hot_topics",

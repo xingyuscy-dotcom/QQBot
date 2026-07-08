@@ -1,4 +1,5 @@
 import json
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -51,6 +52,7 @@ def generate_reply(
     config: dict[str, Any],
     current_text: str = "",
     exclude_latest_user_message: bool = False,
+    preloaded_knowledge_items: list[dict[str, Any]] | None = None,
 ) -> str:
     settings = get_settings()
     messages = build_messages(
@@ -61,6 +63,7 @@ def generate_reply(
         settings,
         current_text,
         exclude_latest_user_message,
+        preloaded_knowledge_items=preloaded_knowledge_items,
     )
     return chat_completion_result(settings, messages).reply
 
@@ -94,7 +97,21 @@ def generate_reply_result(
         current_text,
         exclude_latest_user_message,
     )
-    return chat_completion_result(settings, messages)
+    try:
+        return chat_completion_result(settings, messages)
+    except LLMError:
+        fallback = build_hot_fallback_reply(
+            bot_qq,
+            scope_type,
+            scope_id,
+            config,
+            settings,
+            current_text,
+            exclude_latest_user_message,
+        )
+        if fallback:
+            return LLMResult(reply=fallback, model="", usage={})
+        raise
 
 
 def build_messages(
@@ -105,6 +122,7 @@ def build_messages(
     settings: dict[str, str],
     current_text: str = "",
     exclude_latest_user_message: bool = False,
+    preloaded_knowledge_items: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     global_prompt = settings.get("bot.global_system_prompt", "").strip()
     persona = str(config.get("persona") or "").strip()
@@ -121,14 +139,24 @@ def build_messages(
     )
     context_prompt = format_readonly_context(context_items)
     current_text = str(current_text or "").strip()
-    knowledge_items = collect_knowledge_items(settings, current_text, context_items)
+    hot_force_prefix, _ = parse_hot_force_query(current_text)
+    force_knowledge, _ = parse_knowledge_force_query(
+        current_text,
+        settings.get("knowledge.force_prefixes", ""),
+    )
+    hot_items = collect_hot_items(settings, current_text, context_items)
+    hot_prompt = format_hot_for_prompt(hot_items) if hot_items else ""
+    if preloaded_knowledge_items is not None:
+        knowledge_items = preloaded_knowledge_items
+    elif hot_items and (hot_force_prefix or should_search_hot(current_text)) and not force_knowledge:
+        knowledge_items = []
+    else:
+        knowledge_items = collect_knowledge_items(settings, current_text, context_items)
     knowledge_prompt = format_knowledge_for_prompt(
         "",
         limit=len(knowledge_items),
         items=knowledge_items,
     ) if knowledge_items else ""
-    hot_items = collect_hot_items(settings, current_text, context_items)
-    hot_prompt = format_hot_for_prompt(hot_items) if hot_items else ""
 
     system_parts = [
         global_prompt or DEFAULT_GLOBAL_SYSTEM_PROMPT,
@@ -202,6 +230,51 @@ def collect_hot_items(
     return search_hot_topics(query, limit=max_items)
 
 
+def build_hot_fallback_reply(
+    bot_qq: str,
+    scope_type: ScopeType,
+    scope_id: str,
+    config: dict[str, Any],
+    settings: dict[str, str],
+    current_text: str,
+    exclude_latest_user_message: bool = False,
+) -> str:
+    current_text = str(current_text or "").strip()
+    hot_force_prefix, _ = parse_hot_force_query(current_text)
+    if not hot_force_prefix and not should_search_hot(current_text):
+        return ""
+
+    context_items = load_readonly_context(
+        bot_qq,
+        scope_type,
+        scope_id,
+        parse_context_limit(config.get("context_message_limit")),
+        exclude_latest_user_message,
+    )
+    hot_items = collect_hot_items(settings, current_text, context_items)
+    if not hot_items:
+        return ""
+    return format_hot_fallback_reply(hot_items)
+
+
+def format_hot_fallback_reply(items: list[dict[str, Any]]) -> str:
+    lines = ["本地热点库里查到这些："]
+    for item in items[:5]:
+        source = str(item.get("source") or "热点").strip()
+        rank = int(item.get("rank") or 0)
+        rank_text = f"#{rank}" if rank else "#-"
+        title = clean_hot_reply_title(item.get("title"))
+        lines.append(f"{source}{rank_text} {title}")
+    lines.append("热榜只代表抓取时热度，不等于确定事实。")
+    return "\n".join(lines)
+
+
+def clean_hot_reply_title(value: Any) -> str:
+    title = str(value or "").strip()
+    title = re.sub(r"^.+?热榜第\d+名[:：]", "", title).strip()
+    return title or "未命名热点"
+
+
 def should_return_minimum_for_missing_knowledge(
     bot_qq: str,
     scope_type: ScopeType,
@@ -211,32 +284,7 @@ def should_return_minimum_for_missing_knowledge(
     current_text: str,
     exclude_latest_user_message: bool = False,
 ) -> bool:
-    current_text = str(current_text or "").strip()
-    if not current_text or settings.get("knowledge.enabled", "1").strip() == "0":
-        return False
-
-    force_prefix, force_query = parse_knowledge_force_query(
-        current_text,
-        settings.get("knowledge.force_prefixes", ""),
-    )
-    hot_force_prefix, _ = parse_hot_force_query(current_text)
-    if hot_force_prefix or (not force_prefix and should_search_hot(current_text)):
-        return False
-
-    sensitivity = normalize_knowledge_sensitivity(settings.get("knowledge.sensitivity", "medium"))
-    if not force_prefix and not should_search_knowledge(current_text, sensitivity):
-        return False
-
-    context_limit = parse_context_limit(config.get("context_message_limit"))
-    context_items = load_readonly_context(
-        bot_qq,
-        scope_type,
-        scope_id,
-        context_limit,
-        exclude_latest_user_message,
-    )
-    query = force_query if force_prefix else build_knowledge_query(current_text, context_items, sensitivity)
-    return not search_knowledge(query, limit=1)
+    return False
 
 
 def load_readonly_context(

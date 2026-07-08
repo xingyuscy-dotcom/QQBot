@@ -281,8 +281,8 @@ def format_knowledge_for_prompt(query: str, limit: int = 6, items: list[dict[str
     for item in items:
         category = str(item.get("category") or "").strip()
         prefix = f"[{item['event_date']}{' ' + category if category else ''}]"
-        title = localize_knowledge_text(item.get("title"))
-        summary = localize_knowledge_text(item.get("summary"))
+        title = trim_text(localize_knowledge_text(item.get("title")), 90)
+        summary = trim_text(localize_knowledge_text(item.get("summary")), 180)
         lines.append(f"{prefix} {title}：{summary}")
     return (
         "本地知识库检索结果（只在和当前问题相关时使用；如果不相关就忽略；不要把英文地名照抄成拼音，优先用中文表达）：\n"
@@ -298,6 +298,22 @@ def format_knowledge_items_for_debug(items: list[dict[str, Any]]) -> str:
         lines.append(
             f"[{item.get('event_date', '-')}] {localize_knowledge_text(item.get('title', '-'))}: {localize_knowledge_text(item.get('summary', ''))}"
         )
+    return "\n".join(lines)
+
+
+def format_knowledge_for_direct_reply(items: list[dict[str, Any]], limit: int = 5) -> str:
+    if not items:
+        return "这个我现在没查到靠谱信息，先不瞎说。"
+
+    lines = ["知识库查到："]
+    for index, item in enumerate(items[:limit], start=1):
+        event_date = str(item.get("event_date") or "-").strip()
+        category = str(item.get("category") or "").strip()
+        category_text = f" {category}" if category else ""
+        title = trim_text(localize_knowledge_text(item.get("title")), 90)
+        summary = trim_text(localize_knowledge_text(item.get("summary")), 180)
+        lines.append(f"{index}. [{event_date}{category_text}] {title}：{summary}")
+    lines.append("本地知识库只代表已抓取资料，建议按时间和来源判断可靠性。")
     return "\n".join(lines)
 
 

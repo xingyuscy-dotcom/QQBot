@@ -105,6 +105,11 @@ class KnowledgeUpdatePayload(BaseModel):
     sources: str = "current,game,esports,anime,wikidata,daily,holidays,onthisday,hot"
 
 
+class HotHistoryUpdatePayload(BaseModel):
+    date_from: str = "2025-01-01"
+    date_to: str = ""
+
+
 @router.get("/status")
 def status() -> dict:
     with connect() as conn:
@@ -295,11 +300,13 @@ def read_commands() -> dict:
 @router.get("/knowledge")
 def read_knowledge() -> dict:
     stats = knowledge_stats()
+    settings = get_settings()
     return {
         "ok": True,
         "path": str(KNOWLEDGE_DB_PATH),
         "hot_path": str(HOT_DB_PATH),
         "system_time": datetime.now().isoformat(timespec="seconds"),
+        "hot_last_daily_archive_date": settings.get("hot.last_daily_archive_date", ""),
         "stats": stats,
         "hot_stats": hot_stats(),
         "update_task": knowledge_update_snapshot(),
@@ -362,6 +369,55 @@ def update_knowledge_api(payload: KnowledgeUpdatePayload) -> dict:
     thread = threading.Thread(target=run_knowledge_update_task, args=(command,), daemon=True)
     thread.start()
     log_event("info", "knowledge", "knowledge update started", f"{date_from} to {date_to}, sources={','.join(sources)}")
+    return {
+        "ok": True,
+        "started": True,
+        "task": knowledge_update_snapshot(),
+    }
+
+
+@router.post("/knowledge/hot-history-update")
+def update_hot_history_api(payload: HotHistoryUpdatePayload) -> dict:
+    date_from = payload.date_from.strip() or "2025-01-01"
+    date_to = payload.date_to.strip() or date.today().isoformat()
+    try:
+        total_steps = count_days(date_from, date_to)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日期格式不正确，请使用 YYYY-MM-DD。") from exc
+
+    script = PROJECT_ROOT / "scripts" / "update_hot_history.py"
+    command = [sys.executable, str(script), "--from", date_from, "--to", date_to]
+
+    with KNOWLEDGE_UPDATE_LOCK:
+        if KNOWLEDGE_UPDATE_TASK.get("running"):
+            return {"ok": True, "already_running": True, "task": knowledge_update_snapshot_locked()}
+
+        stats = hot_stats()
+        KNOWLEDGE_UPDATE_TASK.clear()
+        KNOWLEDGE_UPDATE_TASK.update(
+            {
+                "running": True,
+                "status": "running",
+                "progress": 0,
+                "completed_steps": 0,
+                "total_steps": total_steps,
+                "sources": ["hot-history"],
+                "source_ratio": "微博历史热搜",
+                "eta_seconds": None,
+                "date_from": date_from,
+                "date_to": date_to,
+                "system_time": datetime.now().isoformat(timespec="seconds"),
+                "latest_hot_data_date_before": stats.get("latest_date"),
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "finished_at": None,
+                "output": [],
+                "error": "",
+            }
+        )
+
+    thread = threading.Thread(target=run_knowledge_update_task, args=(command,), daemon=True)
+    thread.start()
+    log_event("info", "hot", "hot history update started", f"{date_from} to {date_to}")
     return {
         "ok": True,
         "started": True,
@@ -466,6 +522,17 @@ def count_years(date_from: str, date_to: str) -> int:
     return max(1, end.year - start.year + 1)
 
 
+def count_days(date_from: str, date_to: str) -> int:
+    start = date.fromisoformat(date_from)
+    end = date.fromisoformat(date_to)
+    today = date.today()
+    if end > today:
+        end = today
+    if end < start:
+        raise ValueError("date_to must be after date_from")
+    return max(1, (end - start).days + 1)
+
+
 def normalize_knowledge_sources(value: str) -> list[str]:
     default = ["current", "game", "esports", "anime", "wikidata", "daily", "holidays", "onthisday", "hot"]
     allowed = (*default, "gdelt")
@@ -530,6 +597,7 @@ def is_knowledge_progress_line(line: str) -> bool:
         or re.match(r"^holidays ", line)
         or re.match(r"^onthisday ", line)
         or re.match(r"^hot ", line)
+        or re.match(r"^hot history \d{4}-\d{2}-\d{2}:", line)
     )
 
 

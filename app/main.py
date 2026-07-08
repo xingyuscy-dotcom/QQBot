@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from .admin_api import router as admin_api_router
 from .db import init_db, log_event
 from .hot_store import init_hot_db
+from .hot_scheduler import start_hot_scheduler, stop_hot_scheduler
 from .knowledge_store import init_knowledge_db
 from .onebot import router as onebot_router
 from .paths import STATIC_DIR
@@ -25,8 +26,12 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log_event("warning", "hot", "hot db init failed", repr(exc)[:800])
     ensure_local_config()
+    start_hot_scheduler()
     log_event("info", "system", "QQbot_v2 started")
-    yield
+    try:
+        yield
+    finally:
+        stop_hot_scheduler()
 
 
 def create_app() -> FastAPI:

@@ -343,6 +343,7 @@ async function refreshKnowledge() {
       ["热点条目", formatNumber(hotStats.item_count)],
       ["日期范围", `${text(stats.first_date, "-")} 到 ${text(stats.latest_date, "-")}`],
       ["热点日期", `${text(hotStats.first_date, "-")} 到 ${text(hotStats.latest_date, "-")}`],
+      ["自动补录到", text(data.hot_last_daily_archive_date, "暂无")],
       ["系统时间", text(data.system_time, "-")],
       ["本地最新数据", text(stats.latest_date, "暂无")],
       ["热点最近更新", text(hotStats.latest_fetched_at, "-")],
@@ -378,6 +379,7 @@ async function updateKnowledge() {
     const data = await response.json();
     notice.textContent = data.already_running ? "知识库正在更新中" : "知识库更新中，首次更新可能需要几分钟";
     renderKnowledgeTask(data.task || {});
+    if (data.already_running) button.disabled = false;
     startKnowledgePolling();
   } catch (error) {
     notice.textContent = `知识库更新失败：${error.message || "详情看后台日志"}`;
@@ -387,8 +389,37 @@ async function updateKnowledge() {
   }
 }
 
+async function updateHotHistory() {
+  const button = document.querySelector("#updateHotHistory");
+  const notice = document.querySelector("#knowledgeNotice");
+  const dateFrom = document.querySelector("#knowledgeDateFrom").value || "2025-01-01";
+
+  button.disabled = true;
+  notice.textContent = "历史热搜补录任务已启动";
+  try {
+    const response = await fetch("/api/knowledge/hot-history-update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date_from: dateFrom, date_to: "" }),
+    });
+    if (!response.ok) throw new Error(await readErrorMessage(response, "历史热搜补录失败"));
+
+    const data = await response.json();
+    notice.textContent = data.already_running ? "已有更新任务正在运行" : "历史热搜补录中，结束日期为当前系统日期";
+    renderKnowledgeTask(data.task || {});
+    if (data.already_running) button.disabled = false;
+    startKnowledgePolling();
+  } catch (error) {
+    notice.textContent = `历史热搜补录失败：${error.message || "详情看后台日志"}`;
+    button.disabled = false;
+    stopKnowledgePolling();
+    await refreshLogs();
+  }
+}
+
 async function pollKnowledgeUpdate() {
   const button = document.querySelector("#updateKnowledge");
+  const hotHistoryButton = document.querySelector("#updateHotHistory");
   const notice = document.querySelector("#knowledgeNotice");
   try {
     const response = await fetch("/api/knowledge/update-status");
@@ -399,15 +430,18 @@ async function pollKnowledgeUpdate() {
     if (!data.task?.running) {
       stopKnowledgePolling();
       button.disabled = false;
+      if (hotHistoryButton) hotHistoryButton.disabled = false;
+      const isHotHistory = (data.task?.sources || []).includes("hot-history");
       notice.textContent = data.task?.status === "error"
-        ? `知识库更新失败：${text(data.task?.error, "详情看脚本输出")}`
-        : "知识库更新完成";
+        ? `${isHotHistory ? "历史热搜补录" : "知识库更新"}失败：${text(data.task?.error, "详情看脚本输出")}`
+        : `${isHotHistory ? "历史热搜补录" : "知识库更新"}完成`;
       await refreshKnowledge();
       await refreshLogs();
     }
   } catch (error) {
     stopKnowledgePolling();
     button.disabled = false;
+    if (hotHistoryButton) hotHistoryButton.disabled = false;
     notice.textContent = `读取知识库更新状态失败：${error.message || "详情看后台日志"}`;
   }
 }
@@ -431,11 +465,13 @@ function renderKnowledgeTask(task) {
   const etaText = document.querySelector("#knowledgeEtaText");
   const output = document.querySelector("#knowledgeUpdateOutput");
   const button = document.querySelector("#updateKnowledge");
+  const hotHistoryButton = document.querySelector("#updateHotHistory");
   if (!fill || !progressText || !etaText || !output) return;
 
   const progress = Math.min(100, Math.max(0, Number(task.progress || 0)));
   fill.style.width = `${progress}%`;
-  if (button) button.disabled = Boolean(task.running);
+  if (button) button.title = task.running ? "已有更新任务正在运行，点击会显示当前任务状态" : "";
+  if (hotHistoryButton) hotHistoryButton.title = task.running ? "已有更新任务正在运行，点击会显示当前任务状态" : "";
 
   if (!task.status || task.status === "idle") {
     progressText.textContent = "未开始更新";
@@ -1414,6 +1450,7 @@ document.querySelector("#refreshBackups").addEventListener("click", refreshBacku
 document.querySelector("#createBackup").addEventListener("click", createBackup);
 document.querySelector("#refreshKnowledge").addEventListener("click", refreshKnowledge);
 document.querySelector("#updateKnowledge").addEventListener("click", updateKnowledge);
+document.querySelector("#updateHotHistory").addEventListener("click", updateHotHistory);
 document.querySelector("#searchKnowledge").addEventListener("click", searchKnowledge);
 document.querySelector("#refreshStats").addEventListener("click", refreshStats);
 document.querySelector("#statsDays").addEventListener("change", refreshStats);

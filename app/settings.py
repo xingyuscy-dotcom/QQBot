@@ -19,6 +19,8 @@ DEFAULT_SETTINGS = {
     "knowledge.sensitivity": "medium",
     "knowledge.max_items": "5",
     "knowledge.force_prefixes": "查知识库,知识库",
+    "hot.daily_archive_enabled": "1",
+    "hot.last_daily_archive_date": "",
     "onebot.ws_path": "/onebot/ws",
     "onebot.listen_host": "0.0.0.0",
     "onebot.listen_port": "6199",

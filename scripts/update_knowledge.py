@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.hot_store import purge_old_hot_topics, upsert_hot_items  # noqa: E402
+from app.hot_store import upsert_hot_items  # noqa: E402
 from app.knowledge_store import upsert_knowledge_items  # noqa: E402
 
 
@@ -185,10 +185,22 @@ HOT_SEARCH_PAGES = {
 }
 HOT_API_URLS = {
     "微博": "https://weibo.com/ajax/side/hotSearch",
+    "微博热榜": "https://weibo.com/ajax/statuses/hot_band",
     "知乎": "https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total?limit=20&desktop=true",
     "B站": "https://api.bilibili.com/x/web-interface/popular?ps=20&pn=1",
     "B站热搜": "https://s.search.bilibili.com/main/hotword",
     "B站广场": "https://api.bilibili.com/x/web-interface/search/square?limit=20",
+}
+
+WEIBO_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/145.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Referer": "https://weibo.com/",
 }
 
 
@@ -343,8 +355,6 @@ def main() -> None:
     count = upsert_knowledge_items(selected_items)
     if hot_items:
         hot_count = upsert_hot_items(hot_items)
-        purged = purge_old_hot_topics(days=3)
-        print(f"hot purge: {purged} old items", flush=True)
         print(f"hot update done: {hot_count} items", flush=True)
     print(f"ratio selected: cn={count_region(selected_items, 'cn')}, global={count_region(selected_items, 'global')}", flush=True)
     print(f"knowledge update done: {count} items", flush=True)
@@ -597,19 +607,32 @@ def fetch_hot_topics() -> list[dict[str, Any]]:
 
 
 def fetch_weibo_hot_topics(fetch_time: datetime) -> list[dict[str, Any]]:
-    try:
-        data = json.loads(fetch(HOT_API_URLS["微博"]))
-        rows = []
-        for entry in data.get("data", {}).get("realtime", []):
-            title = clean_hot_title(entry.get("word") or entry.get("note") or "")
-            if title and not is_bad_hot_title(title):
-                rows.append((title, "https://s.weibo.com/weibo?q=" + urllib.parse.quote(title)))
-        if rows:
-            return make_hot_items("微博", rows, fetch_time)
-    except Exception:
-        pass
+    for api_name, item_keys in (
+        ("微博热榜", ("band_list", "realtime")),
+        ("微博", ("realtime", "band_list")),
+    ):
+        try:
+            data = json.loads(fetch(HOT_API_URLS[api_name], headers=WEIBO_HEADERS))
+            rows = []
+            payload = data.get("data", {})
+            for item_key in item_keys:
+                for entry in payload.get(item_key, []):
+                    title = clean_hot_title(entry.get("word") or entry.get("note") or entry.get("word_scheme") or "")
+                    if title and not is_bad_hot_title(title):
+                        rows.append((title, "https://s.weibo.com/weibo?q=" + urllib.parse.quote(title)))
+                if rows:
+                    return make_hot_items("微博", rows, fetch_time)
+        except Exception:
+            pass
 
-    html_text = fetch(HOT_SEARCH_PAGES["微博"])
+    html_text = fetch(
+        HOT_SEARCH_PAGES["微博"],
+        headers={
+            **WEIBO_HEADERS,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://s.weibo.com/",
+        },
+    )
     matches = re.findall(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html_text, flags=re.IGNORECASE | re.DOTALL)
     rows = []
     for href, title_html in matches:
@@ -1098,15 +1121,18 @@ def iter_month_ranges(start: date, end: date):
         yield max(start, month_start), min(end, month_end)
 
 
-def fetch(url: str) -> str:
+def fetch(url: str, headers: dict[str, str] | None = None) -> str:
     for attempt in range(3):
+        request_headers = {
+            "User-Agent": "Mozilla/5.0 QQbot_v2 local knowledge updater",
+            "Accept": "text/html,application/xhtml+xml,application/xml,application/json;q=0.9,*/*;q=0.8",
+            "Referer": "https://www.baidu.com/",
+        }
+        if headers:
+            request_headers.update(headers)
         request = urllib.request.Request(
             url,
-            headers={
-                "User-Agent": "Mozilla/5.0 QQbot_v2 local knowledge updater",
-                "Accept": "text/html,application/xhtml+xml,application/xml,application/json;q=0.9,*/*;q=0.8",
-                "Referer": "https://www.baidu.com/",
-            },
+            headers=request_headers,
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:

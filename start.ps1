@@ -69,6 +69,36 @@ function New-ProjectVenv {
   }
 }
 
+function Test-PythonUsable {
+  param(
+    [string]$PythonPath
+  )
+
+  if (-not $PythonPath) {
+    return $false
+  }
+  if ($PythonPath -like "*\*" -and -not (Test-Path $PythonPath)) {
+    return $false
+  }
+
+  & $PythonPath -X utf8 -c "import sys" *> $null
+  return $LASTEXITCODE -eq 0
+}
+
+function Find-FallbackPython {
+  $Candidates = @(
+    (Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"),
+    "python"
+  )
+
+  foreach ($Candidate in $Candidates) {
+    if (Test-PythonUsable -PythonPath $Candidate) {
+      return $Candidate
+    }
+  }
+  return ""
+}
+
 Use-LocalPortConfig
 Repair-ProcessPath
 
@@ -93,6 +123,19 @@ if (Test-Path $Requirements) {
 }
 
 $Python = $VenvPython
+if (-not (Test-PythonUsable -PythonPath $Python)) {
+  $FallbackPython = Find-FallbackPython
+  if (-not $FallbackPython) {
+    throw "No usable Python runtime was found."
+  }
+
+  $VenvSitePackages = Join-Path $ProjectRoot ".venv\Lib\site-packages"
+  if (Test-Path $VenvSitePackages) {
+    $env:PYTHONPATH = $VenvSitePackages
+  }
+  $Python = $FallbackPython
+  Write-Host "Virtual environment Python is not usable; using fallback Python: $Python"
+}
 
 function Start-QQbotServer {
   param(

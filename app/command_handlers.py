@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from typing import Callable
 
 from .backup_store import create_backup, list_backups
@@ -166,10 +167,41 @@ def knowledge_query(context, args: str) -> str:
     if not query:
         return "用法：/知识库 内容"
 
+    from .knowledge_store import format_knowledge_for_direct_reply, search_knowledge
+    from .llm_client import MINIMUM_REPLY
+
+    started = time.perf_counter()
+    items = search_knowledge(query, limit=5)
+    search_ms = elapsed_ms(started)
+    log_knowledge_timing(
+        context,
+        "knowledge fast query",
+        f"search_ms={search_ms}; items={len(items)}; query={query[:200]}",
+    )
+    if not items:
+        return MINIMUM_REPLY
+
+    return format_knowledge_for_direct_reply(items, limit=5)
+
+
+def knowledge_summary_query(context, args: str) -> str:
+    query = args.strip()
+    if not query:
+        return "用法：/知识库总结 内容"
+
     from .knowledge_store import search_knowledge
     from .llm_client import LLMError, MINIMUM_REPLY, generate_reply
 
-    if not search_knowledge(query, limit=1):
+    total_started = time.perf_counter()
+    search_started = time.perf_counter()
+    items = search_knowledge(query, limit=5)
+    search_ms = elapsed_ms(search_started)
+    if not items:
+        log_knowledge_timing(
+            context,
+            "knowledge summary query",
+            f"search_ms={search_ms}; llm_ms=0; total_ms={elapsed_ms(total_started)}; items=0; query={query[:200]}",
+        )
         return MINIMUM_REPLY
 
     config = _get_conversation_config(context) or {}
@@ -177,6 +209,7 @@ def knowledge_query(context, args: str) -> str:
         return "当前会话还没有配置记录。"
 
     try:
+        llm_started = time.perf_counter()
         return generate_reply(
             context.bot_qq,
             context.scope_type,
@@ -184,6 +217,7 @@ def knowledge_query(context, args: str) -> str:
             config,
             f"/知识库 {query}",
             True,
+            preloaded_knowledge_items=items,
         )
     except LLMError as exc:
         log_event("error", f"knowledge:{context.scope_type}:{context.bot_qq}:{context.scope_id}", "knowledge reply failed", str(exc)[:800])
@@ -191,6 +225,14 @@ def knowledge_query(context, args: str) -> str:
     except Exception as exc:
         log_event("error", f"knowledge:{context.scope_type}:{context.bot_qq}:{context.scope_id}", "knowledge reply failed", repr(exc)[:800])
         return "知识库回答失败，详情看后台日志。"
+    finally:
+        llm_ms = elapsed_ms(llm_started) if "llm_started" in locals() else 0
+        total_ms = elapsed_ms(total_started)
+        log_knowledge_timing(
+            context,
+            "knowledge summary query",
+            f"search_ms={search_ms}; llm_ms={llm_ms}; total_ms={total_ms}; items={len(items)}; query={query[:200]}",
+        )
 
 
 def hot_topics(context, args: str) -> str:
@@ -246,6 +288,22 @@ def format_hot_topic_line(item: dict) -> str:
     time_match = re.search(r"抓取时间[:：]([^；;]+)", summary)
     fetched_time = time_match.group(1).strip() if time_match else str(item.get("fetched_at") or item.get("event_date") or "-")
     return f"[{fetched_time} {source}] #{rank} {topic}"
+
+
+def elapsed_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)
+
+
+def log_knowledge_timing(context, message: str, detail: str) -> None:
+    try:
+        log_event(
+            "info",
+            f"knowledge:{context.scope_type}:{context.bot_qq}:{context.scope_id}",
+            message,
+            detail,
+        )
+    except Exception:
+        pass
 
 
 def at_test(context, args: str):
@@ -568,6 +626,7 @@ HANDLERS: dict[str, Callable] = {
     "learning_help": learning_help,
     "command_help": command_help,
     "knowledge_query": knowledge_query,
+    "knowledge_summary_query": knowledge_summary_query,
     "hot_topics": hot_topics,
     "backup_create": backup_create,
     "backup_list": backup_list,
