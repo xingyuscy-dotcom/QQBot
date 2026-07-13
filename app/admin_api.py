@@ -26,6 +26,7 @@ from .hot_store import format_hot_items_for_debug, hot_stats
 from .knowledge_store import knowledge_stats, search_knowledge
 from .memory_store import load_memory, replace_manager_memory, reset_pending_message_count
 from .paths import BACKUPS_DIR, COMMANDS_PATH, DB_PATH, HOT_DB_PATH, KNOWLEDGE_DB_PATH, LOGS_DIR, PROJECT_ROOT
+from .rag_store import rag_stats, rag_task_snapshot, start_rag_index, stop_rag_index
 from .prompts import DEFAULT_GLOBAL_SYSTEM_PROMPT
 from .settings import get_settings, set_setting
 
@@ -72,6 +73,16 @@ class AppSettingsPayload(BaseModel):
     knowledge_sensitivity: str = "medium"
     knowledge_max_items: str = "5"
     knowledge_force_prefixes: str = "查知识库,知识库"
+    rag_enabled: str = "1"
+    rag_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    rag_embedding_dimension: str = "512"
+    rag_embedding_device: str = "auto"
+    rag_embedding_batch_size: str = "16"
+    rag_min_similarity: str = "0.30"
+    rag_hot_vector_days: str = "30"
+    rag_reranker_enabled: str = "0"
+    rag_reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    rag_reranker_top_k: str = "20"
 
 
 class ConversationPersonaPayload(BaseModel):
@@ -242,6 +253,16 @@ def read_settings() -> dict:
         "knowledge_sensitivity": settings.get("knowledge.sensitivity", "medium"),
         "knowledge_max_items": settings.get("knowledge.max_items", "5"),
         "knowledge_force_prefixes": settings.get("knowledge.force_prefixes", "查知识库,知识库"),
+        "rag_enabled": settings.get("rag.enabled", "1"),
+        "rag_embedding_model": settings.get("rag.embedding_model", "Qwen/Qwen3-Embedding-0.6B"),
+        "rag_embedding_dimension": settings.get("rag.embedding_dimension", "512"),
+        "rag_embedding_device": settings.get("rag.embedding_device", "auto"),
+        "rag_embedding_batch_size": settings.get("rag.embedding_batch_size", "16"),
+        "rag_min_similarity": settings.get("rag.min_similarity", "0.30"),
+        "rag_hot_vector_days": settings.get("rag.hot_vector_days", "30"),
+        "rag_reranker_enabled": settings.get("rag.reranker_enabled", "0"),
+        "rag_reranker_model": settings.get("rag.reranker_model", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"),
+        "rag_reranker_top_k": settings.get("rag.reranker_top_k", "20"),
         "api_key_saved": bool(settings.get("llm.api_key", "").strip()),
     }
 
@@ -260,6 +281,16 @@ def update_settings(payload: AppSettingsPayload) -> dict:
         "knowledge.sensitivity": payload.knowledge_sensitivity.strip() or "medium",
         "knowledge.max_items": payload.knowledge_max_items.strip() or "5",
         "knowledge.force_prefixes": payload.knowledge_force_prefixes.strip() or "查知识库,知识库",
+        "rag.enabled": "1" if payload.rag_enabled.strip() == "1" else "0",
+        "rag.embedding_model": payload.rag_embedding_model.strip() or "Qwen/Qwen3-Embedding-0.6B",
+        "rag.embedding_dimension": payload.rag_embedding_dimension.strip() or "512",
+        "rag.embedding_device": payload.rag_embedding_device.strip() or "auto",
+        "rag.embedding_batch_size": payload.rag_embedding_batch_size.strip() or "16",
+        "rag.min_similarity": payload.rag_min_similarity.strip() or "0.30",
+        "rag.hot_vector_days": payload.rag_hot_vector_days.strip() or "30",
+        "rag.reranker_enabled": "1" if payload.rag_reranker_enabled.strip() == "1" else "0",
+        "rag.reranker_model": payload.rag_reranker_model.strip() or "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
+        "rag.reranker_top_k": payload.rag_reranker_top_k.strip() or "20",
     }
     if not items["llm.base_url"]:
         raise HTTPException(status_code=400, detail="llm_base_url is required")
@@ -309,7 +340,33 @@ def read_knowledge() -> dict:
         "hot_last_daily_archive_date": settings.get("hot.last_daily_archive_date", ""),
         "stats": stats,
         "hot_stats": hot_stats(),
+        "rag_stats": rag_stats(),
         "update_task": knowledge_update_snapshot(),
+    }
+
+
+@router.post("/knowledge/rag-index")
+def build_rag_index_api(full_rebuild: bool = Query(default=False)) -> dict:
+    return {
+        "ok": True,
+        "task": start_rag_index(full_rebuild),
+    }
+
+
+@router.post("/knowledge/rag-stop")
+def stop_rag_index_api() -> dict:
+    return {
+        "ok": True,
+        "task": stop_rag_index(),
+    }
+
+
+@router.get("/knowledge/rag-status")
+def rag_status_api() -> dict:
+    return {
+        "ok": True,
+        "stats": rag_stats(),
+        "task": rag_task_snapshot(),
     }
 
 
@@ -463,6 +520,8 @@ def run_knowledge_update_task(command: list[str]) -> None:
                 KNOWLEDGE_UPDATE_TASK["latest_data_date_after"] = knowledge_stats().get("latest_date")
                 KNOWLEDGE_UPDATE_TASK["latest_hot_data_date_after"] = hot_stats().get("latest_date")
                 log_event("info", "knowledge", "knowledge update finished", "\n".join(KNOWLEDGE_UPDATE_TASK["output"][-10:])[:800])
+                if get_settings().get("rag.enabled", "1") == "1":
+                    start_rag_index(False)
             else:
                 KNOWLEDGE_UPDATE_TASK["status"] = "error"
                 KNOWLEDGE_UPDATE_TASK["error"] = f"脚本退出码：{return_code}"

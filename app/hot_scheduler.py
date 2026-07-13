@@ -50,6 +50,10 @@ def _update_one_day_with_retries(target: date) -> None:
         if ok:
             set_setting("hot.last_daily_archive_date", target.isoformat())
             log_event("info", "hot", "daily hot history update finished", output[-800:])
+            if get_settings().get("rag.enabled", "1") == "1":
+                from .rag_store import start_rag_index
+
+                start_rag_index(False)
             return
 
         log_event("warning", "hot", "daily hot history update failed", f"attempt={attempt}\n{output[-800:]}")

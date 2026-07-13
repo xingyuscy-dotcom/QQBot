@@ -7,14 +7,16 @@ from typing import Any
 from .commands import is_memory_command_text
 from .db import ScopeType, get_recent_conversation_messages
 from .hot_store import format_hot_for_prompt, has_hot_intent, search_hot_topics
-from .knowledge_store import format_knowledge_for_prompt, search_knowledge
+from .knowledge_store import KNOWLEDGE_MISS_REPLY, format_knowledge_for_prompt, search_knowledge
 from .memory_store import format_memory_for_prompt, load_memory
 from .prompts import DEFAULT_GLOBAL_SYSTEM_PROMPT
 from .settings import get_settings
 
 
 DEFAULT_CONTEXT_MESSAGE_LIMIT = 8
-MINIMUM_REPLY = "这个我现在没查到靠谱信息，先不瞎说。"
+GENERAL_FALLBACK_REPLY = "我这边暂时没法好好回复，晚点再试试。"
+# Kept for older callers that treat model failures as a normal fallback.
+MINIMUM_REPLY = GENERAL_FALLBACK_REPLY
 KNOWLEDGE_FORCE_PREFIXES = ("查知识库", "知识库", "/知识库")
 HOT_FORCE_PREFIXES = ("/热点", "热点", "热搜", "热榜")
 KNOWLEDGE_DOMAIN_WORDS = (
@@ -86,7 +88,7 @@ def generate_reply_result(
         current_text,
         exclude_latest_user_message,
     ):
-        return LLMResult(reply=MINIMUM_REPLY, model="", usage={})
+        return LLMResult(reply=KNOWLEDGE_MISS_REPLY, model="", usage={})
 
     messages = build_messages(
         bot_qq,
@@ -469,8 +471,6 @@ def chat_completion_result(settings: dict[str, str], messages: list[dict[str, st
         raise LLMError(f"invalid llm response: {str(data)[:800]}") from exc
 
     reply = strip_bot_prefix(normalize_content(content).strip())
-    if not reply:
-        reply = MINIMUM_REPLY
     return LLMResult(reply=reply[:1800], model=str(data.get("model") or model), usage=data.get("usage") or {})
 
 

@@ -5,6 +5,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:HF_HUB_DISABLE_XET = "1"
+$env:HF_HUB_DOWNLOAD_TIMEOUT = "60"
+$env:HF_HUB_ETAG_TIMEOUT = "20"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectRoot
 $AdminPortWasPassed = $PSBoundParameters.ContainsKey("AdminPort")
@@ -53,16 +56,11 @@ function New-ProjectVenv {
     [string]$VenvDir
   )
 
-  $PyLauncher = Get-Command "py" -ErrorAction SilentlyContinue
-  if ($PyLauncher) {
-    & $PyLauncher.Source -3 -m venv $VenvDir
-  } else {
-    $PythonCommand = Get-Command "python" -ErrorAction SilentlyContinue
-    if (-not $PythonCommand) {
-      throw "Python is not installed or not in PATH. Please install Python 3.11+ first."
-    }
-    & $PythonCommand.Source -m venv $VenvDir
+  $PythonPath = Find-FallbackPython
+  if (-not $PythonPath) {
+    throw "Python is not installed or usable. Please install Python 3.11+ first."
   }
+  & $PythonPath -m venv $VenvDir
 
   if ($LASTEXITCODE -ne 0) {
     throw "Failed to create virtual environment."
@@ -81,8 +79,12 @@ function Test-PythonUsable {
     return $false
   }
 
-  & $PythonPath -X utf8 -c "import sys" *> $null
-  return $LASTEXITCODE -eq 0
+  try {
+    & $PythonPath -X utf8 -c "import sys" *> $null
+    return $LASTEXITCODE -eq 0
+  } catch {
+    return $false
+  }
 }
 
 function Find-FallbackPython {
@@ -104,6 +106,16 @@ Repair-ProcessPath
 
 $VenvDir = Join-Path $ProjectRoot ".venv"
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+if ((Test-Path $VenvPython) -and -not (Test-PythonUsable -PythonPath $VenvPython)) {
+  $ResolvedProjectRoot = [IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
+  $ResolvedVenvDir = [IO.Path]::GetFullPath($VenvDir).TrimEnd('\')
+  $ExpectedVenvDir = Join-Path $ResolvedProjectRoot ".venv"
+  if ($ResolvedVenvDir -ne $ExpectedVenvDir) {
+    throw "Refusing to rebuild an unexpected virtual environment path: $ResolvedVenvDir"
+  }
+  Write-Host "Existing virtual environment is not usable; rebuilding it..."
+  Remove-Item -LiteralPath $ResolvedVenvDir -Recurse -Force
+}
 if (-not (Test-Path $VenvPython)) {
   Write-Host "Creating Python virtual environment..."
   New-ProjectVenv -VenvDir $VenvDir

@@ -139,6 +139,15 @@ def search_hot_topics(query: str, limit: int = 5) -> list[dict[str, Any]]:
     if not tokens or is_broad_hot_query(query, tokens):
         return list_hot_topics(limit=limit) if has_hot_intent(query) else []
 
+    try:
+        from .rag_store import search_rag
+
+        rag_items = search_rag(query, "hot", limit)
+        if rag_items is not None:
+            return rag_items
+    except Exception:
+        pass
+
     query_tokens = searchable_tokens(tokens)
     where = " OR ".join(["title LIKE ? OR summary LIKE ? OR keywords LIKE ?" for _ in query_tokens])
     values: list[str] = []
@@ -230,8 +239,10 @@ def format_hot_items_for_debug(items: list[dict[str, Any]]) -> str:
     for item in items:
         rank = int(item.get("rank") or 0)
         rank_text = f"#{rank}" if rank else "#-"
+        score = item.get("rag_score")
+        score_text = f" RAG:{float(score):.3f}" if score is not None else ""
         lines.append(
-            f"[{item.get('event_date', '-')} {item.get('source', '热点')} {rank_text}] "
+            f"[{item.get('event_date', '-')} {item.get('source', '热点')} {rank_text}{score_text}] "
             f"{normalize_space(item.get('title'))}: {normalize_space(item.get('summary'))}"
         )
     return "\n".join(lines)

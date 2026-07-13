@@ -7,6 +7,9 @@ from typing import Any
 from .paths import KNOWLEDGE_DB_PATH
 
 
+KNOWLEDGE_MISS_REPLY = "这个我现在没查到靠谱信息，先不瞎说。"
+
+
 ALIASES = {
     "特朗普": ["Trump"],
     "拜登": ["Biden"],
@@ -175,6 +178,15 @@ def upsert_knowledge_items(items: list[dict[str, Any]]) -> int:
 
 def search_knowledge(query: str, limit: int = 8) -> list[dict[str, Any]]:
     try:
+        from .rag_store import search_rag
+
+        rag_items = search_rag(query, "knowledge", limit)
+        if rag_items is not None:
+            return rag_items
+    except Exception:
+        pass
+
+    try:
         init_knowledge_db()
     except (OSError, sqlite3.Error):
         return []
@@ -280,7 +292,9 @@ def format_knowledge_for_prompt(query: str, limit: int = 6, items: list[dict[str
     lines = []
     for item in items:
         category = str(item.get("category") or "").strip()
-        prefix = f"[{item['event_date']}{' ' + category if category else ''}]"
+        source = str(item.get("source") or "").strip()
+        source_text = f" 来源:{source}" if source else ""
+        prefix = f"[{item['event_date']}{' ' + category if category else ''}{source_text}]"
         title = trim_text(localize_knowledge_text(item.get("title")), 90)
         summary = trim_text(localize_knowledge_text(item.get("summary")), 180)
         lines.append(f"{prefix} {title}：{summary}")
@@ -295,15 +309,17 @@ def format_knowledge_items_for_debug(items: list[dict[str, Any]]) -> str:
         return "未命中知识库"
     lines = []
     for item in items:
+        score = item.get("rag_score")
+        score_text = f" RAG:{float(score):.3f}" if score is not None else ""
         lines.append(
-            f"[{item.get('event_date', '-')}] {localize_knowledge_text(item.get('title', '-'))}: {localize_knowledge_text(item.get('summary', ''))}"
+            f"[{item.get('event_date', '-')}{score_text}] {localize_knowledge_text(item.get('title', '-'))}: {localize_knowledge_text(item.get('summary', ''))}"
         )
     return "\n".join(lines)
 
 
 def format_knowledge_for_direct_reply(items: list[dict[str, Any]], limit: int = 5) -> str:
     if not items:
-        return "这个我现在没查到靠谱信息，先不瞎说。"
+        return KNOWLEDGE_MISS_REPLY
 
     lines = ["知识库查到："]
     for index, item in enumerate(items[:limit], start=1):

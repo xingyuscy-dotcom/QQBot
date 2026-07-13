@@ -1,6 +1,7 @@
 let activeConversation = null;
 let commandListExpanded = false;
 let knowledgeUpdateTimer = null;
+let ragUpdateTimer = null;
 
 function text(value, fallback = "未获取") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
@@ -335,6 +336,7 @@ async function refreshKnowledge() {
     const data = await response.json();
     const stats = data.stats || {};
     const hotStats = data.hot_stats || {};
+    const ragStats = data.rag_stats || {};
     document.querySelector("#knowledgePath").textContent = data.path
       ? `本地文件：${data.path}；热点库：${data.hot_path || "-"}`
       : "";
@@ -348,15 +350,125 @@ async function refreshKnowledge() {
       ["本地最新数据", text(stats.latest_date, "暂无")],
       ["热点最近更新", text(hotStats.latest_fetched_at, "-")],
       ["最近更新", text(stats.latest_fetched_at, "-")],
+      ["RAG 文档", formatNumber(ragStats.document_count)],
+      ["RAG 向量", formatNumber(ragStats.vector_count)],
+      ["RAG 模型", text(ragStats.model, "未构建")],
+      ["RAG 维度", text(ragStats.dimension, "-")],
+      ["RAG 状态", ragStats.ready ? "可用" : text(ragStats.error, "未构建")],
       ["状态", Number(stats.item_count || 0) > 0 ? "可用" : "空"],
     ]
       .map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`)
       .join("");
     renderKnowledgeTask(data.update_task || {});
+    renderRagTask(ragStats.task || {});
     if (data.update_task?.running) startKnowledgePolling();
+    if (ragStats.task?.running) startRagPolling();
   } catch (error) {
     notice.textContent = `读取知识库失败：${error.message || "详情看后台日志"}`;
   }
+}
+
+async function buildRagIndex(fullRebuild) {
+  const notice = document.querySelector("#knowledgeNotice");
+  const button = document.querySelector(fullRebuild ? "#rebuildRagIndex" : "#buildRagIndex");
+  button.disabled = true;
+  notice.textContent = fullRebuild
+    ? "正在启动完整重建，原 RAG 索引会被重新生成"
+    : "正在启动增量索引";
+  try {
+    const response = await fetch(`/api/knowledge/rag-index?full_rebuild=${fullRebuild ? "true" : "false"}`, {
+      method: "POST",
+    });
+    if (!response.ok) throw new Error(await readErrorMessage(response, "启动 RAG 索引失败"));
+    const data = await response.json();
+    renderRagTask(data.task || {});
+    notice.textContent = "RAG 索引任务已启动；首次运行会下载约 1.2 GB 的模型";
+    startRagPolling();
+  } catch (error) {
+    button.disabled = false;
+    notice.textContent = `启动 RAG 索引失败：${error.message || "详情看后台日志"}`;
+  }
+}
+
+async function stopRagIndex() {
+  const notice = document.querySelector("#knowledgeNotice");
+  const button = document.querySelector("#stopRagIndex");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/knowledge/rag-stop", { method: "POST" });
+    if (!response.ok) throw new Error(await readErrorMessage(response, "停止 RAG 索引失败"));
+    const data = await response.json();
+    renderRagTask(data.task || {});
+    notice.textContent = "已请求停止，当前批次处理完后会结束。";
+    if (data.task?.running) startRagPolling();
+  } catch (error) {
+    notice.textContent = `停止 RAG 索引失败：${error.message || "详情看后台日志"}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function pollRagIndex() {
+  const notice = document.querySelector("#knowledgeNotice");
+  try {
+    const response = await fetch("/api/knowledge/rag-status");
+    if (!response.ok) throw new Error(await readErrorMessage(response, "读取 RAG 状态失败"));
+    const data = await response.json();
+    renderRagTask(data.task || {});
+    if (!data.task?.running) {
+      stopRagPolling();
+      document.querySelector("#buildRagIndex").disabled = false;
+      document.querySelector("#rebuildRagIndex").disabled = false;
+      notice.textContent = data.task?.status === "error"
+        ? `RAG 索引失败：${text(data.task?.error, "详情看日志")}`
+        : data.task?.status === "cancelled"
+          ? "RAG 索引已停止"
+          : data.task?.status === "done"
+            ? "RAG 索引构建完成"
+            : "RAG 索引未完成";
+      await refreshKnowledge();
+      await refreshLogs();
+    }
+  } catch (error) {
+    stopRagPolling();
+    document.querySelector("#buildRagIndex").disabled = false;
+    document.querySelector("#rebuildRagIndex").disabled = false;
+    notice.textContent = `读取 RAG 状态失败：${error.message || "详情看后台日志"}`;
+  }
+}
+
+function startRagPolling() {
+  stopRagPolling();
+  ragUpdateTimer = window.setInterval(pollRagIndex, 1500);
+  pollRagIndex().catch(() => {});
+}
+
+function stopRagPolling() {
+  if (ragUpdateTimer) {
+    window.clearInterval(ragUpdateTimer);
+    ragUpdateTimer = null;
+  }
+}
+
+function renderRagTask(task) {
+  const fill = document.querySelector("#ragProgressFill");
+  const progressText = document.querySelector("#ragProgressText");
+  const etaText = document.querySelector("#ragEtaText");
+  const output = document.querySelector("#ragUpdateOutput");
+  if (!fill || !progressText || !etaText || !output) return;
+  const progress = Math.min(100, Math.max(0, Number(task.progress || 0)));
+  fill.style.width = `${progress}%`;
+  progressText.textContent = task.running || task.status !== "idle"
+    ? `RAG 进度 ${progress}%（${Number(task.processed || 0)}/${Number(task.total || 0)}）`
+    : "RAG 索引未开始";
+  etaText.textContent = task.running
+    ? task.status === "loading_model" ? "状态：加载模型" : `预计剩余：${formatEta(task.eta_seconds)}`
+    : `状态：${task.status === "done" ? "完成" : task.status === "error" ? "失败" : "-"}`;
+  output.textContent = (task.output || []).length ? task.output.join("\n") : "暂无 RAG 索引输出";
+  output.scrollTop = output.scrollHeight;
+  document.querySelector("#buildRagIndex").disabled = Boolean(task.running);
+  document.querySelector("#rebuildRagIndex").disabled = Boolean(task.running);
+  document.querySelector("#stopRagIndex").disabled = !task.running;
 }
 
 async function updateKnowledge() {
@@ -760,6 +872,16 @@ async function refreshSettings() {
   form.elements.knowledge_sensitivity.value = text(data.knowledge_sensitivity, "medium");
   form.elements.knowledge_max_items.value = text(data.knowledge_max_items, "5");
   form.elements.knowledge_force_prefixes.value = text(data.knowledge_force_prefixes, "查知识库,知识库");
+  form.elements.rag_enabled.value = text(data.rag_enabled, "1");
+  form.elements.rag_embedding_model.value = text(data.rag_embedding_model, "Qwen/Qwen3-Embedding-0.6B");
+  form.elements.rag_embedding_dimension.value = text(data.rag_embedding_dimension, "512");
+  form.elements.rag_embedding_device.value = text(data.rag_embedding_device, "auto");
+  form.elements.rag_embedding_batch_size.value = text(data.rag_embedding_batch_size, "16");
+  form.elements.rag_min_similarity.value = text(data.rag_min_similarity, "0.30");
+  form.elements.rag_hot_vector_days.value = text(data.rag_hot_vector_days, "30");
+  form.elements.rag_reranker_enabled.value = text(data.rag_reranker_enabled, "0");
+  form.elements.rag_reranker_model.value = text(data.rag_reranker_model, "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1");
+  form.elements.rag_reranker_top_k.value = text(data.rag_reranker_top_k, "20");
   form.elements.llm_api_key.placeholder = data.api_key_saved
     ? "API Key 已保存，留空不修改"
     : "请输入 API Key";
@@ -1403,6 +1525,16 @@ async function saveSettings(event) {
         knowledge_sensitivity: text(formData.get("knowledge_sensitivity"), "medium"),
         knowledge_max_items: text(formData.get("knowledge_max_items"), "5"),
         knowledge_force_prefixes: text(formData.get("knowledge_force_prefixes"), "查知识库,知识库"),
+        rag_enabled: text(formData.get("rag_enabled"), "1"),
+        rag_embedding_model: text(formData.get("rag_embedding_model"), "Qwen/Qwen3-Embedding-0.6B"),
+        rag_embedding_dimension: text(formData.get("rag_embedding_dimension"), "512"),
+        rag_embedding_device: text(formData.get("rag_embedding_device"), "auto"),
+        rag_embedding_batch_size: text(formData.get("rag_embedding_batch_size"), "16"),
+        rag_min_similarity: text(formData.get("rag_min_similarity"), "0.30"),
+        rag_hot_vector_days: text(formData.get("rag_hot_vector_days"), "30"),
+        rag_reranker_enabled: text(formData.get("rag_reranker_enabled"), "0"),
+        rag_reranker_model: text(formData.get("rag_reranker_model"), "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"),
+        rag_reranker_top_k: text(formData.get("rag_reranker_top_k"), "20"),
         bot_global_system_prompt: text(formData.get("bot_global_system_prompt"), ""),
       }),
     });
@@ -1451,6 +1583,9 @@ document.querySelector("#createBackup").addEventListener("click", createBackup);
 document.querySelector("#refreshKnowledge").addEventListener("click", refreshKnowledge);
 document.querySelector("#updateKnowledge").addEventListener("click", updateKnowledge);
 document.querySelector("#updateHotHistory").addEventListener("click", updateHotHistory);
+document.querySelector("#buildRagIndex").addEventListener("click", () => buildRagIndex(false));
+document.querySelector("#rebuildRagIndex").addEventListener("click", () => buildRagIndex(true));
+document.querySelector("#stopRagIndex").addEventListener("click", stopRagIndex);
 document.querySelector("#searchKnowledge").addEventListener("click", searchKnowledge);
 document.querySelector("#refreshStats").addEventListener("click", refreshStats);
 document.querySelector("#statsDays").addEventListener("change", refreshStats);

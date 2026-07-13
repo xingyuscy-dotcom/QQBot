@@ -10,6 +10,7 @@ from .hot_scheduler import start_hot_scheduler, stop_hot_scheduler
 from .knowledge_store import init_knowledge_db
 from .onebot import router as onebot_router
 from .paths import STATIC_DIR
+from .rag_store import init_rag_db
 from .settings import ensure_local_config
 from .web import router as web_router
 
@@ -25,6 +26,10 @@ async def lifespan(app: FastAPI):
         init_hot_db()
     except Exception as exc:
         log_event("warning", "hot", "hot db init failed", repr(exc)[:800])
+    try:
+        init_rag_db()
+    except Exception as exc:
+        log_event("warning", "rag", "RAG db init failed", repr(exc)[:800])
     ensure_local_config()
     start_hot_scheduler()
     log_event("info", "system", "QQbot_v2 started")

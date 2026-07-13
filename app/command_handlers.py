@@ -21,6 +21,7 @@ from .memory_store import (
 )
 from .paths import COMMANDS_PATH
 from .settings import get_settings
+from .knowledge_store import KNOWLEDGE_MISS_REPLY
 
 
 def memory_view(context, args: str) -> str:
@@ -168,7 +169,6 @@ def knowledge_query(context, args: str) -> str:
         return "用法：/知识库 内容"
 
     from .knowledge_store import format_knowledge_for_direct_reply, search_knowledge
-    from .llm_client import MINIMUM_REPLY
 
     started = time.perf_counter()
     items = search_knowledge(query, limit=5)
@@ -179,7 +179,7 @@ def knowledge_query(context, args: str) -> str:
         f"search_ms={search_ms}; items={len(items)}; query={query[:200]}",
     )
     if not items:
-        return MINIMUM_REPLY
+        return KNOWLEDGE_MISS_REPLY
 
     return format_knowledge_for_direct_reply(items, limit=5)
 
@@ -190,7 +190,7 @@ def knowledge_summary_query(context, args: str) -> str:
         return "用法：/知识库总结 内容"
 
     from .knowledge_store import search_knowledge
-    from .llm_client import LLMError, MINIMUM_REPLY, generate_reply
+    from .llm_client import LLMError, generate_reply
 
     total_started = time.perf_counter()
     search_started = time.perf_counter()
@@ -202,7 +202,7 @@ def knowledge_summary_query(context, args: str) -> str:
             "knowledge summary query",
             f"search_ms={search_ms}; llm_ms=0; total_ms={elapsed_ms(total_started)}; items=0; query={query[:200]}",
         )
-        return MINIMUM_REPLY
+        return KNOWLEDGE_MISS_REPLY
 
     config = _get_conversation_config(context) or {}
     if not config:

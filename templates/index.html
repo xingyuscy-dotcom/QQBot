@@ -88,6 +88,65 @@
           <span>知识库强制前缀</span>
           <input name="knowledge_force_prefixes" placeholder="查知识库,知识库">
         </label>
+        <label>
+          <span>RAG 检索</span>
+          <select name="rag_enabled">
+            <option value="1">开启</option>
+            <option value="0">关闭</option>
+          </select>
+        </label>
+        <label>
+          <span>Embedding 模型</span>
+          <select name="rag_embedding_model">
+            <option value="Qwen/Qwen3-Embedding-0.6B">Qwen3-Embedding-0.6B（均衡）</option>
+            <option value="Qwen/Qwen3-Embedding-4B">Qwen3-Embedding-4B（高质量）</option>
+          </select>
+        </label>
+        <label>
+          <span>向量维度</span>
+          <select name="rag_embedding_dimension">
+            <option value="256">256</option>
+            <option value="512">512（推荐）</option>
+            <option value="1024">1024</option>
+          </select>
+        </label>
+        <label>
+          <span>Embedding 设备</span>
+          <select name="rag_embedding_device">
+            <option value="auto">自动</option>
+            <option value="cpu">CPU</option>
+            <option value="cuda">CUDA</option>
+          </select>
+        </label>
+        <label>
+          <span>Embedding 批量</span>
+          <input name="rag_embedding_batch_size" type="number" min="1" max="64" step="1" placeholder="默认 16">
+        </label>
+        <label>
+          <span>RAG 最低相似度</span>
+          <input name="rag_min_similarity" type="number" min="0" max="1" step="0.01" placeholder="默认 0.30">
+        </label>
+        <label>
+          <span>热点向量保留天数</span>
+          <input name="rag_hot_vector_days" type="number" min="7" max="180" step="1" placeholder="默认 30">
+        </label>
+        <label>
+          <span>Cross-Encoder 精排</span>
+          <select name="rag_reranker_enabled">
+            <option value="1">开启</option>
+            <option value="0">关闭</option>
+          </select>
+        </label>
+        <label>
+          <span>精排模型</span>
+          <select name="rag_reranker_model">
+            <option value="cross-encoder/mmarco-mMiniLMv2-L12-H384-v1">mmarco-mMiniLMv2-L12-H384-v1（中文多语）</option>
+          </select>
+        </label>
+        <label>
+          <span>精排候选数</span>
+          <input name="rag_reranker_top_k" type="number" min="1" max="20" step="1" placeholder="默认 20">
+        </label>
         <label class="wide-field">
           <span>全局人设</span>
           <textarea name="bot_global_system_prompt"></textarea>
@@ -205,6 +264,9 @@
         <div class="heading-actions">
           <button id="updateKnowledge" type="button">更新知识库</button>
           <button id="updateHotHistory" type="button">补录历史热搜</button>
+          <button id="buildRagIndex" type="button">增量构建 RAG</button>
+          <button id="rebuildRagIndex" class="secondary" type="button">完整重建 RAG</button>
+          <button id="stopRagIndex" class="secondary" type="button">停止 RAG 构建</button>
           <button id="refreshKnowledge" class="secondary" type="button">刷新知识库</button>
         </div>
       </div>
@@ -256,6 +318,16 @@
       <div id="knowledgeStats" class="status-grid">
         <div><dt>条目</dt><dd>加载中</dd></div>
         <div><dt>日期范围</dt><dd>加载中</dd></div>
+      </div>
+      <div class="knowledge-progress">
+        <div class="progress-meta">
+          <span id="ragProgressText">RAG 索引未开始</span>
+          <span id="ragEtaText">状态：-</span>
+        </div>
+        <div class="progress-bar">
+          <div id="ragProgressFill" class="progress-fill"></div>
+        </div>
+        <pre id="ragUpdateOutput" class="knowledge-output">暂无 RAG 索引输出</pre>
       </div>
       <div class="table-wrap">
         <table>
@@ -404,6 +476,6 @@
     </section>
   </div>
 
-  <script src="/static/admin.js?v=hot-history-1"></script>
+  <script src="/static/admin.js?v=rag-1"></script>
 </body>
 </html>
